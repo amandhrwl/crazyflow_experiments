@@ -1,0 +1,27 @@
+[drone]
+id = 3
+channel = 80
+model = "cf21B_500" # cf2x_L250, cf2x_P250, cf2x_T350, cf21B_500
+pos_landing = [0.2, 0.2, 0.0] # landing position of the drone in global frame
+pos_update_freq = 20 # Hz, frequency for onboard estimator updates
+
+[controller]
+type = "mellinger"
+ctrl_freq = 100 # Hz
+
+[experiment]
+# A zero-size ellipse stays at its origin, so the drone hovers there for n_runs * time seconds
+origin = [0.0, 0.0, 1.25] # hover position in global frame
+trajectory = "ellipse"
+plane = "xy"
+scaling = [0.0, 0.0, 0.0] # keep at zero for a hover
+time = 10.0 # s of hovering
+n_runs = 1
+yaw_mode = "constant"
+yaw_setting = 0 # yaw angle in rad
+soft_start = false # nothing to ramp into, the takeoff already ends at the hover pose
+
+[sim]
+physics = "first_principles" # physics model of the sim, e.g., first_principles, so_rpy_rotor_drag
+render = true # enable/disable rendering
+fps = 60

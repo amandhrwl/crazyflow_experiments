@@ -765,7 +765,7 @@ def evaluate_ppo_batched(
 # region Main
 def main(
     preset: Preset = "10s",
-    wandb_enabled: bool = True,
+    wandb_enabled: bool = False,
     train: bool = True,
     n_eval: int = 1,
     render: bool = False,
