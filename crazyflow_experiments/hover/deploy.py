@@ -147,7 +147,7 @@ def main(calibrate: bool = True, save: bool = True) -> None:
         "rpy": np.zeros(3),
         "t": time.perf_counter(),
     }
-    controller = MellingerController(initial_obs, trajectory, model)
+    controller = MellingerController(initial_obs, trajectory, model, mass=config["drone"]["mass"])
 
     monitor = FirmwareMonitor()
     drone = connect(

@@ -14,7 +14,7 @@ every dependency, so each experiment domain has its own environment, defined in 
 | Environment | Experiments |
 |---|---|
 | `crazyflow` | `benchmarks/` |
-| `sim2real` | `sim2real/` |
+| `sim2real` | `sim2real/`, `downwash/` |
 | `sysid` | `sysid/` |
 | `racing` | `racing/` |
 | `mppi` | `mppi_obstacles/` |
@@ -89,6 +89,14 @@ docstring, so only the cases that deviate are listed here.
 - `throw/collect.py` replays the recorded throws through the training checkpoints and writes
   success curves for evaluating recovery rate.
 - `learn2fly/export.py` writes the trained actor as a C header for the onboard firmware.
+- `downwash/` flies two Crazyflies at once: the victim hovers while the source passes over it.
+  `design.py` writes the leg table of block A3, `deploy_a3.py --flight <k>` flies one flight of it,
+  both drones served by the one loop of `downwash/pair.py` from the joint takeoff to the joint
+  landing, and `convert_a3.py <flight folder> --bag <bag>` cuts the legs into the thesis format.
+  Both drones log onboard to micro-SD (`downwash/usd.py`, card configs in `downwash/sd/`); the
+  conversion maps each card's clock onto PC time from the `ctrltarget` echo of the sent setpoints.
+  It also needs the rosbag of `/tf` recorded during the flight. `--dry-run` plans a flight without
+  connecting anything.
 
 **Real drone deployment** requires launching in separate terminals first:
 ```bash
@@ -122,6 +130,7 @@ crazyflow_experiments/
 ├── utils/           # Shared paths, ROS helpers and position errors
 ├── benchmarks/      # Simulator speed benchmarking
 ├── sim2real/        # Sim-to-real validation pipeline
+├── downwash/        # Two-drone downwash flyover passes with onboard SD logging
 ├── sysid/           # System identification
 ├── figure8/         # Figure-8 tracking policies (BPTT, PPO)
 ├── learn2fly/       # Reach-position policies (TD3)
@@ -203,6 +212,8 @@ Evaluation scripts and tests that report such an error call these instead of com
 | `crazyflow_experiments/throw/config.toml` | Drone and control frequency for the throw experiment |
 | `crazyflow_experiments/mppi_obstacles/config.toml` | MPPI parameters, cost weights and obstacle layout |
 | `crazyflow_experiments/vision/config.toml` | Drone and manual control interface for camera data collection |
+| `crazyflow_experiments/downwash/config.toml` | Both drones of the downwash passes with their weighed masses and `thrust_scale` calibrations of crazyflow's rpm2thrust, the pass profile of block A3, sync hop, takeoff and safety limits |
+| `crazyflow_experiments/hover/config.toml` | Crazyflie of the hover flights with its own weighed `mass`, which the controller flies with instead of the model's, and its `thrust_scale` |
 | `crazyflow_experiments/sysid/config.toml` | Drone as in the sim2real config, controller, origin and trajectory set of the identification flight |
 | `crazyflow_experiments/sysid/config_drones.toml` | Mass, pwm range, thrust curve and thrust limits of every drone model, one table per model, read by every experiment through `control.config.drone_params` |
 | `crazyflow_experiments/sysid/config_trajectories.toml` | The `[trajectory_sets]` of the identification flights |

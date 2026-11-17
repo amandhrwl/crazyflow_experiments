@@ -1,9 +1,14 @@
 [drone]
-id = 3
+id = 4
 channel = 80
 model = "cf21B_500" # cf2x_L250, cf2x_P250, cf2x_T350, cf21B_500
 pos_landing = [0.2, 0.2, 0.0] # landing position of the drone in global frame
 pos_update_freq = 20 # Hz, frequency for onboard estimator updates
+# This drone's own values, so the shared model tables in sysid/config_drones.toml and crazyflow stay
+# untouched. The controller flies with `mass` instead of the model's mass; `thrust_scale` multiplies
+# crazyflow's rpm2thrust of the model when the rotor thrust is computed from the logged rpm
+mass = 0.04525 # kg, weighed with SD deck, card, markers and the new battery
+thrust_scale = 0.9046 # rpm2thrust calibration from the steady hover of vic09-12 at 45.25 g
 
 [controller]
 type = "mellinger"
@@ -22,6 +27,6 @@ yaw_setting = 0 # yaw angle in rad
 soft_start = false # nothing to ramp into, the takeoff already ends at the hover pose
 
 [sim]
-physics = "first_principles" # physics model of the sim, e.g., first_principles, so_rpy_rotor_drag
+physics = "so_rpy_rotor_drag" # physics model of the sim, e.g., first_principles, so_rpy_rotor_drag
 render = true # enable/disable rendering
 fps = 60

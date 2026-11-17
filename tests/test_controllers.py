@@ -89,3 +89,11 @@ def test_mellinger_controller_mass_from_drone_config():
     controller = MellingerController(hover(0.0, START), TRAJECTORY, "hb_x500")
     hover_thrust = controller(hover(0.0, START))[3]  # on the planar reference, only gravity in z
     assert hover_thrust == pytest.approx(drone_params("hb_x500")["mass"] * G, rel=1e-3)
+
+
+def test_mellinger_controller_weighed_mass_replaces_the_model_mass():
+    """A drone heavier than its model, e.g. with a deck, hovers on its weighed mass."""
+    controller = MellingerController(hover(0.0, START), TRAJECTORY, "hb_x500", mass=1.234)
+    assert controller(hover(0.0, START))[3] == pytest.approx(1.234 * G, rel=1e-3)
+    with pytest.raises(ValueError, match="mass"):
+        MellingerController(hover(0.0, START), TRAJECTORY, "hb_x500", mass=0.0)

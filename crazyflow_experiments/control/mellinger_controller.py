@@ -37,6 +37,7 @@ class MellingerController(Controller):
         low_level_ctrl_freq: float = 500,
         tilt_max: float | None = None,
         legacy_heading: bool = False,
+        mass: float | None = None,
     ):
         """Initialization of the controller.
 
@@ -49,11 +50,15 @@ class MellingerController(Controller):
             legacy_heading: Build the attitude like the firmware, from the x axis of the desired
                 heading, so that the yaw turns with the tilt. The system identification data was
                 collected this way. Otherwise the y axis of the heading is used, which keeps the yaw.
+            mass: Weighed mass of this particular drone in kg, which replaces the mass of the model
+                when given, e.g. with a deck or a heavier battery.
         """
         self.low_level_ctrl_freq = low_level_ctrl_freq
         self.tilt_max = tilt_max
         self.legacy_heading = legacy_heading
-        self.drone_mass = drone_params(drone_model)["mass"]
+        self.drone_mass = drone_params(drone_model)["mass"] if mass is None else mass
+        if self.drone_mass <= 0:
+            raise ValueError(f"The drone mass must be positive, not {self.drone_mass} kg")
         match drone_model:
             case _ if "cf" in drone_model:
                 self.kp = np.array([0.4, 0.4, 1.25])

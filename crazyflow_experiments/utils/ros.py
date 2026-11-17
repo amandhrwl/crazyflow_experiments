@@ -1,11 +1,17 @@
 """Helpers shared by the real drone deployment scripts."""
 
 import logging
+import os
 import subprocess
 import threading
 import time
 
 logger = logging.getLogger(__name__)
+
+# The drone estimator node pins its ROS discovery to LOCALHOST so that the poses stay on this
+# machine. The robostack activation exports SUBNET, and a SUBNET participant does not reliably
+# discover a LOCALHOST one, so everything that talks to the estimator pins the range as well.
+ESTIMATOR_DISCOVERY_RANGE = {"ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"}
 
 
 def _call_service(drone_id: int, service: str, timeout: float = 30.0):
@@ -20,7 +26,10 @@ def _call_service(drone_id: int, service: str, timeout: float = 30.0):
     name = f"/drones/cf{drone_id}/{service}"
     logger.info(f"Calling {name}...")
     cmd = ["ros2", "service", "call", name, "std_srvs/srv/Trigger"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
+    env = os.environ | ESTIMATOR_DISCOVERY_RANGE
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, check=True, timeout=timeout, env=env
+    )
     response = result.stdout.strip().replace("\n", " | ")
     logger.info(f"Service response: {response}")
 

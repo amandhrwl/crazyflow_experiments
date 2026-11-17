@@ -66,7 +66,9 @@ def main(config: dict | None = None) -> None:
     )
     sim.reset()
 
-    controller = MellingerController(extract_obs(sim), trajectory, model)
+    # The controller assumes the weighed mass as on the drone, the simulated drone keeps crazyflow's
+    mass = config["drone"]["mass"]
+    controller = MellingerController(extract_obs(sim), trajectory, model, mass=mass)
     takeoff(sim, pos_start, yaw_start, ctrl_freq, render=config["sim"]["render"])
 
     controller._t_start = extract_obs(sim)["t"] - trajectory_config.start_time

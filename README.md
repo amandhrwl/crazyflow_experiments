@@ -42,7 +42,7 @@ Each experiment has its own environment to avoid dependency conflicts between di
 | Environment | Experiments |
 |---|---|
 | `crazyflow` | `benchmarks/` |
-| `sim2real` | `sim2real/` |
+| `sim2real` | `sim2real/`, `downwash/` |
 | `sysid` | `sysid/` |
 | `racing` | `racing/` |
 | `mppi` | `mppi_obstacles/` |
@@ -124,6 +124,7 @@ Each experiment lives in its own folder and has its own readme with the setup an
 | Throw and stabilize | [`crazyflow_experiments/throw/`](crazyflow_experiments/throw/README.md) |
 | MPPI obstacle avoidance | [`crazyflow_experiments/mppi_obstacles/`](crazyflow_experiments/mppi_obstacles/README.md) |
 | Vision | [`crazyflow_experiments/vision/`](crazyflow_experiments/vision/README.md) |
+| Downwash flyover passes | [`crazyflow_experiments/downwash/`](crazyflow_experiments/downwash/README.md) |
 
 For the learned controllers (figure-8 tracking, reach position, throw and stabilize), environments and agents are implemented in `core/`. Checkpoints and recordings go under `saves/` and `results/`.
 

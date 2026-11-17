@@ -27,6 +27,8 @@ from crazyflow.drones import Drone as Drones
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector
 from scipy.spatial.transform import Rotation as R
 
+from crazyflow_experiments.utils.ros import ESTIMATOR_DISCOVERY_RANGE
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -79,6 +81,8 @@ class Drone:
         self._log_variables = log_variables
         self._log_callback = log_callback
 
+        # The connectors spawn their ROS processes with this environment
+        os.environ.update(ESTIMATOR_DISCOVERY_RANGE)
         if not rclpy.ok():
             rclpy.init()
         self._ros_connector = ROSConnector(
