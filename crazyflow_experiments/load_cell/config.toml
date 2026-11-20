@@ -1,0 +1,43 @@
+# Load cell setup test: the victim sits on the load cell, the source hovers beside it, over it and
+# beside it again. See README.md.
+
+[victim]
+id = 4                              # the drone on the load cell, it reads the load cell itself
+channel = 80
+radio = 0                           # Crazyradio index; a second radio here takes load off radio 0
+
+[source]
+id = 3
+channel = 80                        # the source always flies on radio 0
+model = "cf21B_500"
+pos_update_freq = 20                # Hz, motion capture pose sent to the onboard estimator
+
+[load_cell]
+# The firmware computes loadcell.weight = a * loadcell.rawWeight + b, in grams of upward force on
+# the victim: thrust counts positive, a load pushing down negative (calibscale.py --drone-on-top).
+# From crazyflie-firmware/tools/system_id/calibration.toml, run 3 of the new load cell (0 to
+# 50 g), 19 Nov, at 10 SPS. Run 2 was the old cell: a 4.5 times steeper slope of the other sign.
+a = -7.637814860773531e-5
+b = 78.71625307872215
+sample_rate = 3                     # loadcell.sampleRate: 0, 1, 2, 3, 7 = 10, 20, 40, 80, 320 SPS
+radio_period_ms = 10                # 100 Hz radio log of the load cell
+
+[flight]
+ctrl_freq = 100                     # Hz of the source's setpoints
+height_sep = 0.6                    # m, source above the victim's marker frame while over it
+aside = [0.0, -1.0]                 # m, xy offset from the victim of the hold beside it
+baseline_time = 5.0                 # s of still air before the takeoff and after the landing
+aside_time = 5.0                    # s of each hold beside the victim
+over_time = 10.0                    # s of the hold over the victim
+move_time = 4.0                     # s of each move between the two holds
+# After the takeoff the source holds beside the victim until it stays within settle_tolerance of
+# the hold for settle_time, at most settle_timeout, before the holds above start
+settle_tolerance = 0.10             # m
+settle_time = 1.0                   # s
+settle_timeout = 15.0               # s
+
+[safety]
+clearance = 0.5                     # m, horizontal distance of the takeoff and landing paths from the victim
+xy_guard = 0.4                      # m, horizontal distance below which min_height_sep applies
+min_height_sep = 0.35               # m, source above the victim while within xy_guard
+max_tracking_error = 0.25           # m, source position from its setpoint

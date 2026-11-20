@@ -14,7 +14,7 @@ every dependency, so each experiment domain has its own environment, defined in 
 | Environment | Experiments |
 |---|---|
 | `crazyflow` | `benchmarks/` |
-| `sim2real` | `sim2real/` |
+| `sim2real` | `sim2real/`, `load_cell/` |
 | `sysid` | `sysid/` |
 | `racing` | `racing/` |
 | `mppi` | `mppi_obstacles/` |
@@ -89,6 +89,16 @@ docstring, so only the cases that deviate are listed here.
 - `throw/collect.py` replays the recorded throws through the training checkpoints and writes
   success curves for evaluating recovery rate.
 - `learn2fly/export.py` writes the trained actor as a C header for the onboard firmware.
+- `load_cell/` tests the load cell under the victim of the downwash experiments: the victim sits
+  on it with its motors off and reads it with the `loadcell` deck driver of the firmware's sysid
+  build, the source hovers beside, over and beside it again. `deploy.py [--dry-run]` flies it,
+  both drones log to their SD cards (`usd.py write-config` puts `sd/config_<role>.txt` on a card)
+  and the victim streams the load cell over the radio at 100 Hz. `convert.py <recording>` maps
+  every onboard clock onto PC time (`sync.py`): the tick through the arrival times of the radio
+  packets, the SD timer through a variable both log, so it needs the card files copied into
+  `<recording>/sd/<role>/` first. Firmware older than bitcraze crazyflie-firmware#1684 (the copy in
+  `submodules/` among it) runs the SD timer 85/84 slow, which the sync detects and corrects.
+  Only the source needs an estimator, the victim only its rigid body.
 
 **Real drone deployment** requires launching in separate terminals first:
 ```bash
@@ -122,6 +132,7 @@ crazyflow_experiments/
 ├── utils/           # Shared paths, ROS helpers and position errors
 ├── benchmarks/      # Simulator speed benchmarking
 ├── sim2real/        # Sim-to-real validation pipeline
+├── load_cell/       # Load cell setup test: the source hovers over the victim on the load cell
 ├── sysid/           # System identification
 ├── figure8/         # Figure-8 tracking policies (BPTT, PPO)
 ├── learn2fly/       # Reach-position policies (TD3)
@@ -203,6 +214,7 @@ Evaluation scripts and tests that report such an error call these instead of com
 | `crazyflow_experiments/throw/config.toml` | Drone and control frequency for the throw experiment |
 | `crazyflow_experiments/mppi_obstacles/config.toml` | MPPI parameters, cost weights and obstacle layout |
 | `crazyflow_experiments/vision/config.toml` | Drone and manual control interface for camera data collection |
+| `crazyflow_experiments/load_cell/config.toml` | Victim on the load cell and its calibration and sample rate, the source, the holds beside and over the victim and the safety limits |
 | `crazyflow_experiments/sysid/config.toml` | Drone as in the sim2real config, controller, origin and trajectory set of the identification flight |
 | `crazyflow_experiments/sysid/config_drones.toml` | Mass, pwm range, thrust curve and thrust limits of every drone model, one table per model, read by every experiment through `control.config.drone_params` |
 | `crazyflow_experiments/sysid/config_trajectories.toml` | The `[trajectory_sets]` of the identification flights |

@@ -1,0 +1,16 @@
+1
+8192
+lcv
+0
+on:fixedFrequency
+500
+1
+loadcell.rawWeight
+loadcell.weight
+acc.x
+acc.y
+acc.z
+gyro.x
+gyro.y
+gyro.z
+pm.vbatMV
