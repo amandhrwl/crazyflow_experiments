@@ -3,6 +3,7 @@
 
 [victim]
 id = 4                              # the drone on the load cell, it reads the load cell itself
+model = "cf21B_500"                 # mass and thrust map of the spinning test, sysid/config_drones.toml
 channel = 80
 radio = 0                           # Crazyradio index; a second radio here takes load off radio 0
 
@@ -35,6 +36,11 @@ move_time = 4.0                     # s of each move between the two holds
 settle_tolerance = 0.10             # m
 settle_time = 1.0                   # s
 settle_timeout = 15.0               # s
+
+[spin]
+# deploy.py --spin: the victim runs its motors on the load cell while the source flies
+thrust_fraction = 0.5               # of the victim's weight, at most 0.8 so it stays on the load cell
+spin_up_time = 2.0                  # s after the motors start and after they stop
 
 [safety]
 clearance = 0.5                     # m, horizontal distance of the takeoff and landing paths from the victim

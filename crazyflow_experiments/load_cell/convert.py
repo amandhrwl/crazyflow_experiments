@@ -53,7 +53,7 @@ SYNC_VARIABLES = {
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, BAND = "#e1e0d9", "#c3c2b7", "#efeee9"
 SERIES = ("#2a78d6", "#eb6834")  # Card, radio
-LABELED_PHASES = ("still_before", "aside_1", "over", "aside_2", "still_after")
+LABELED_PHASES = ("still_before", "spin_alone", "aside_1", "over", "aside_2", "still_after")
 
 
 def sd_file(folder: Path, role: str, meta: dict) -> Path:

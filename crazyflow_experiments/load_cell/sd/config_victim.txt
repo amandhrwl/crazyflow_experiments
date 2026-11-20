@@ -6,11 +6,16 @@ on:fixedFrequency
 500
 1
 loadcell.rawWeight
-loadcell.weight
 acc.x
 acc.y
 acc.z
 gyro.x
 gyro.y
 gyro.z
+motor.m1_rpm
+motor.m2_rpm
+motor.m3_rpm
+motor.m4_rpm
+stateEstimate.roll
+stateEstimate.pitch
 pm.vbatMV

@@ -13,7 +13,13 @@ import pytest  # noqa: E402
 import toml  # noqa: E402
 
 from crazyflow_experiments.load_cell import CONFIG_PATH, deploy  # noqa: E402
-from crazyflow_experiments.load_cell.deploy import plan_flight, settle, violation  # noqa: E402
+from crazyflow_experiments.load_cell.deploy import (  # noqa: E402
+    plan_flight,
+    settle,
+    spin_pwm,
+    violation,
+)
+from crazyflow_experiments.load_cell.radio import ARMED, CAN_FLY, Victim  # noqa: E402
 
 CONFIG = toml.load(CONFIG_PATH)
 VICTIM = np.array([0.2, 0.1, 0.5])
@@ -103,3 +109,79 @@ def test_settle_lands_a_source_that_leaves_its_clearance(fast_settle: dict):
     source = FakeSource(plan.aside + [0.0, 0.6, 0.0], step=0.0)
     _, reason = settle(source, plan, fast_settle, threading.Event())
     assert "setpoint" in reason
+
+
+def test_spin_command_is_the_thrust_fraction_of_the_victims_weight():
+    """Half the weight over four motors through the linear thrust map, and no lift-off fraction."""
+    params = deploy.drone_params(CONFIG["victim"]["model"])
+    config = CONFIG | {"spin": CONFIG["spin"] | {"thrust_fraction": 0.5}}
+    thrust = spin_pwm(config) / params["pwm_max"] * params["thrust_max"] * 4
+    assert thrust == pytest.approx(0.5 * params["mass"] * deploy.G, rel=1e-4)
+    with pytest.raises(ValueError, match="lift"):
+        spin_pwm(CONFIG | {"spin": CONFIG["spin"] | {"thrust_fraction": 1.0}})
+
+
+class FakeLink:
+    """The parts of a cflib link the spinning victim uses, with a supervisor that arms at once."""
+
+    def __init__(self, arms: bool):
+        """Arm on request if `arms`, as with every motor idling in its rpm range."""
+        self.params: dict[str, float] = {}
+        self.setpoints = 0
+        self.info = 0x0001
+        self.arms = arms
+        self.param = self
+        self.commander = self
+        self.supervisor = self
+
+    def set_value(self, name: str, value: float):
+        """Write a parameter."""
+        self.params[name] = value
+
+    def get_value(self, name: str) -> float:
+        """Read a parameter."""
+        return self.params[name]
+
+    def send_setpoint(self, roll: float, pitch: float, yawrate: float, thrust: int):
+        """Count the setpoints that feed the watchdog."""
+        self.setpoints += 1
+
+    def send_arming_request(self, arm: bool):
+        """Arm or disarm, the supervisor reports it in supervisor.info."""
+        self.info = (ARMED | CAN_FLY) if arm and self.arms else 0x0001
+
+    def latest(self, variable: str) -> int:
+        """The radio log's last supervisor.info."""
+        return self.info
+
+
+def fake_victim(link: FakeLink) -> Victim:
+    """A Victim on the fake link, without connecting."""
+    victim = Victim.__new__(Victim)
+    victim.name, victim.cf, victim.radio_log = "cf4", link, link
+    victim._feeding, victim._stop_feeding = None, threading.Event()
+    return victim
+
+
+def test_spinning_victim_arms_feeds_the_watchdog_and_disarms(monkeypatch: pytest.MonkeyPatch):
+    """The motors get the command once armed, setpoints flow until the stop, which disarms."""
+    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.STATUS_PERIOD_MS", 50)
+    link = FakeLink(arms=True)
+    victim = fake_victim(link)
+    victim.spin(17000)
+    assert [link.params[f"motorPowerSet.m{i}"] for i in range(1, 5)] == [17000] * 4
+    assert link.params["motorPowerSet.enable"] == 1 and victim.spinning
+    victim.stop_spin()
+    assert link.info & ARMED == 0 and link.params["motorPowerSet.enable"] == 0
+    assert link.setpoints > 1 and not victim.spinning
+
+
+def test_a_victim_that_does_not_arm_never_gets_a_motor_command(monkeypatch: pytest.MonkeyPatch):
+    """A failed arming, e.g. a motor out of its idle rpm range, stops before the motors are set."""
+    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.ARM_TIMEOUT", 0.3)
+    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.STATUS_PERIOD_MS", 50)
+    link = FakeLink(arms=False)
+    victim = fake_victim(link)
+    with pytest.raises(RuntimeError, match="did not arm"):
+        victim.spin(17000)
+    assert "motorPowerSet.m1" not in link.params and not victim.spinning

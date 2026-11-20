@@ -5,8 +5,12 @@ script records still air first, then the source takes off from where it stands, 
 victim, moves over it, holds there, moves back, holds and lands where it took off, and still air is
 recorded again. Both cards log throughout. See README.md for the terminals to start first.
 
+With `--spin` the victim runs its motors on the load cell at a fixed command (`[spin]` in the
+config) from after the still air until the source has landed, first alone, so the load cell
+measures its thrust, then under the source's wake, as a flying victim would meet it.
+
 Run with
-    pixi run -e sim2real python crazyflow_experiments/load_cell/deploy.py [--dry-run]
+    pixi run -e sim2real python crazyflow_experiments/load_cell/deploy.py [--dry-run] [--spin]
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ import toml
 from crazyflow.control import Control
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector
 
-from crazyflow_experiments.control.config import build_trajectory
+from crazyflow_experiments.control.config import build_trajectory, drone_params
 from crazyflow_experiments.control.loop import sleep_until_next_cycle
 from crazyflow_experiments.control.state_controller import StateController
 from crazyflow_experiments.control.trajectories import CompositeTrajectory
@@ -60,6 +64,10 @@ logging.getLogger("crazyflow_experiments").setLevel(logging.INFO)
 # sync.py), supervisor.info shows whether it armed (a motor out of the arming rpm range disarms it)
 SOURCE_RADIO_VARIABLES = ["acc.z", "stateEstimate.z", "pm.vbat", "supervisor.info"]
 STILL_SPREAD = 0.005  # m, largest motion capture spread of a drone standing still
+G = 9.81
+# Largest thrust of the spinning victim, as a fraction of its weight: below it the victim stays
+# pressed onto the load cell even where it only rests on it
+MAX_SPIN_FRACTION = 0.8
 
 
 @dataclass(frozen=True)
@@ -130,6 +138,23 @@ def plan_flight(config: dict, victim: NDArray, source_start: NDArray) -> Plan:
         ("aside_2", s[2], s[2] + times[2]),
     ]
     return Plan(victim, source_start, aside, over, trajectory, phases)
+
+
+def spin_pwm(config: dict) -> int:
+    """Motor command at which the victim's thrust is `thrust_fraction` of its weight.
+
+    With the linear thrust map of `deploy.crazyflie.Drone`, thrust per motor / thrust_max * pwm_max.
+    The load cell measures the thrust it really makes.
+    """
+    fraction = config["spin"]["thrust_fraction"]
+    if not 0 < fraction <= MAX_SPIN_FRACTION:
+        raise ValueError(
+            f"thrust_fraction {fraction} must lie in (0, {MAX_SPIN_FRACTION}], higher could lift "
+            "the victim off the load cell"
+        )
+    params = drone_params(config["victim"]["model"])
+    thrust = fraction * params["mass"] * G / 4
+    return round(thrust / params["thrust_max"] * params["pwm_max"])
 
 
 def still_position(mocap: ROSConnector, name: str, duration: float = 1.0) -> NDArray:
@@ -280,11 +305,12 @@ def save(folder: Path, meta: dict, victim: RadioLog, source: RadioLog | None, re
     logger.info(f"Recording in {folder}")
 
 
-def main(dry_run: bool = False):
+def main(dry_run: bool = False, spin: bool = False):
     """Plan the flight from the motion capture, then fly and record it.
 
     Args:
         dry_run: Only plan and check the flight, connect to no drone.
+        spin: Run the victim's motors on the load cell while the source flies.
     """
     config = toml.load(CONFIG_PATH)
     flight = config["flight"]
@@ -300,6 +326,8 @@ def main(dry_run: bool = False):
         f"Victim at {plan.victim.round(3)}, source at {plan.source_start.round(3)}. Holds aside at "
         f"{plan.aside.round(3)} and over at {plan.over.round(3)}, {plan.trajectory.duration:.0f} s"
     )
+    if spin:
+        logger.info(f"The victim spins at {spin_pwm(config)}")
     if dry_run:
         return
 
@@ -323,6 +351,15 @@ def main(dry_run: bool = False):
             f"Load cell at {victim.radio_log.latest('loadcell.rate'):.0f} Hz, victim battery "
             f"{victim.radio_log.latest('pm.vbat'):.2f} V"
         )
+        if spin:  # Alone first: the load cell measures the thrust at the command
+            meta["spin"] = {"pwm": spin_pwm(config)} | config["spin"]
+            t0 = time.time()
+            victim.spin(meta["spin"]["pwm"])
+            time.sleep(config["spin"]["spin_up_time"])
+            phases.append(("spin_up", t0, time.time()))
+            t0 = time.time()
+            time.sleep(flight["baseline_time"])
+            phases.append(("spin_alone", t0, time.time()))
 
         source_radio = RadioLog(source_name, report=("supervisor.info",))
         source_config = {"drone": config["source"] | {"pos_landing": [*plan.source_start[:2], 0.0]}}
@@ -375,10 +412,20 @@ def main(dry_run: bool = False):
             }
             drone.close()
 
+        if spin:
+            t0 = time.time()
+            time.sleep(flight["baseline_time"])
+            phases.append(("spin_alone_after", t0, time.time()))
+            t0 = time.time()
+            victim.stop_spin()
+            time.sleep(config["spin"]["spin_up_time"])
+            phases.append(("spin_down", t0, time.time()))
         t0 = time.time()
         time.sleep(flight["baseline_time"])
         phases.append(("still_after", t0, time.time()))
     finally:
+        if victim.spinning:
+            victim.stop_spin()
         if "victim" in meta["sd"]:
             meta["sd"]["victim"]["stop"] = usd.stop_logging(victim.cf, victim.name)
         meta["sd"]["victim"] = meta["sd"].get("victim", {}) | {
@@ -399,4 +446,6 @@ if __name__ == "__main__":
         description="Hover the source over the victim on the load cell"
     )
     parser.add_argument("--dry-run", action="store_true", help="Plan and check, fly nothing")
-    main(parser.parse_args().dry_run)
+    parser.add_argument("--spin", action="store_true", help="Run the victim's motors meanwhile")
+    args = parser.parse_args()
+    main(args.dry_run, args.spin)

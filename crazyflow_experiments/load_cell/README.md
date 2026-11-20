@@ -68,6 +68,18 @@ holds. While it flies them, it is stopped when it strays 0.25 m from its setpoin
 it took off rather than dropping onto the load cell. At the end the script prints the mean load cell
 reading of every phase and the card files to copy.
 
+### Spinning victim
+
+`deploy.py --spin` runs the victim's motors on the load cell while the source flies, at the command
+that makes `[spin] thrust_fraction` (0.5, at most 0.8) of its weight in thrust. With its motors off
+the load cell only feels the wake on the still airframe; a flying victim mostly loses rotor thrust
+in it, which the spinning victim shows. The script arms the victim after the still air, overrides
+its motors with `motorPowerSet` and keeps its supervisor's watchdog fed with zero setpoints, so a
+lost link stops the motors within 2 s. New phases: `spin_up`, `spin_alone` (the load cell measures
+the thrust at the command, against the thrust from the logged rpm), then the source's flight,
+`spin_alone_after` and `spin_down` before `still_after`. Its card logs the four motor rpm and its
+tilt for the force balance F = m a - T(rpm).
+
 ## After the test
 
 Copy the card files into their recordings and convert. `collect` takes a mounted card, or a folder

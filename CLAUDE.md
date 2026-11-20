@@ -91,7 +91,8 @@ docstring, so only the cases that deviate are listed here.
 - `learn2fly/export.py` writes the trained actor as a C header for the onboard firmware.
 - `load_cell/` tests the load cell under the victim of the downwash experiments: the victim sits
   on it with its motors off and reads it with the `loadcell` deck driver of the firmware's sysid
-  build, the source hovers beside, over and beside it again. `deploy.py [--dry-run]` flies it,
+  build, the source hovers beside, over and beside it again. `deploy.py [--dry-run] [--spin]` flies
+  it, with `--spin` while the victim runs its motors on the load cell,
   both drones log to their SD cards (`usd.py write-config` puts `sd/config_<role>.txt` on a card)
   and the victim streams the load cell over the radio at 100 Hz. Firmware with the
   `usd.fileDate`/`usd.fileTime` parameters of the patched `usddeck.c` in `../crazyflie-firmware`
