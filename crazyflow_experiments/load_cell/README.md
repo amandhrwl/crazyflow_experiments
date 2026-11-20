@@ -21,7 +21,7 @@ about 70 s in all:
 |---|---|
 | `config.toml` | Drone ids, load cell calibration and sample rate, flight timings, safety limits |
 | `sd/config_victim.txt`, `sd/config_source.txt` | Card configs, 500 Hz; the victim's logs `loadcell.rawWeight` |
-| `usd.py` | Card configs onto a card, logging start and stop, the log decoder |
+| `usd.py` | Card configs onto a card, logging start and stop, card files into their recordings, the log decoder |
 | `radio.py` | Radio logs stamped with their PC arrival time, the victim's link |
 | `deploy.py` | Flies the test and records it |
 | `sync.py`, `convert.py` | Put the cards, the radio logs and the motion capture onto PC time |
@@ -29,7 +29,10 @@ about 70 s in all:
 ## Before the test
 
 1. The victim runs the sysid build of the firmware (`CONFIG_DECK_LOADCELL`, `bcLoadcell` forced),
-   which `deploy.py` checks in its log TOC.
+   which `deploy.py` checks in its log TOC, the source a plain `cf21bl_defconfig` build. Firmware
+   with the `usd.fileDate` parameter of our `usddeck.c` names each card file after its recording,
+   `victim_2026-11-20_15-26-55_SD` for the recording `test_2026-11-20_15-26-55`; older firmware
+   numbers it `victimNN` and `deploy.py` warns.
 2. Write both card configs, with the cards in the PC, and put each card back in its drone before
    power-up:
 
@@ -67,12 +70,12 @@ reading of every phase and the card files to copy.
 
 ## After the test
 
-Copy the card files into the recording, as the script names them, and convert:
+Copy the card files into their recordings and convert. `collect` takes a mounted card, or a folder
+the card files were copied to, and puts every file into `<recording>/sd/<role>/` of the recording
+whose `meta.json` names it:
 
 ```bash
-results/load_cell/test_<timestamp>/sd/victim/lcvNN
-results/load_cell/test_<timestamp>/sd/source/lcsNN
-
+pixi run -e sim2real python crazyflow_experiments/load_cell/usd.py collect /media/<card>
 pixi run -e sim2real python crazyflow_experiments/load_cell/convert.py results/load_cell/test_<timestamp>
 ```
 

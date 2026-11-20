@@ -1,9 +1,9 @@
 """Put the SD logs, the radio logs and the motion capture of a load cell test onto the PC clock.
 
-Copy the card files into the recording first, `deploy.py` names them at the end:
+Copy the card files into the recording first, `usd.py collect <card>` puts them there:
 
-    results/load_cell/test_<timestamp>/sd/victim/lcvNN
-    results/load_cell/test_<timestamp>/sd/source/lcsNN
+    results/load_cell/test_<timestamp>/sd/victim/victim_<timestamp>_SD
+    results/load_cell/test_<timestamp>/sd/source/source_<timestamp>_SD
 
 Run with
     pixi run -e sim2real python crazyflow_experiments/load_cell/convert.py \

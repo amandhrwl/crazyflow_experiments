@@ -1,12 +1,17 @@
 """Onboard logging to the micro-SD card decks of the victim and the source.
 
-The firmware (`usddeck.c`) reads `config.txt` once at boot and opens the next free file `<name>NN`
-each time `usd.logging` is set to 1. The file only gets its CRC32 when logging is stopped again
-with `usd.logging = 0`. The card configs live in `sd/config_<role>.txt`, `write-config` copies one
-onto a mounted card:
+The firmware (`usddeck.c`) reads `config.txt` once at boot and opens a new file each time
+`usd.logging` is set to 1. Firmware with the `usd.fileDate` and `usd.fileTime` parameters names
+it after the recording that `start_logging` passes, `<name>_YYYY-MM-DD_hh-mm-ss_SD` with `<name>`
+from `config.txt`, the same time as the recording folder `test_YYYY-MM-DD_hh-mm-ss`; older
+firmware numbers it `<name>NN`. The file only gets its CRC32 when logging is stopped again with
+`usd.logging = 0`. The card configs live in `sd/config_<role>.txt`, `write-config` copies one onto a
+mounted card, and `collect` copies the files from a card, or a folder they were copied to, into
+the recordings whose `meta.json` names them:
 
     pixi run -e sim2real python crazyflow_experiments/load_cell/usd.py write-config /media/<card> \
         --role victim
+    pixi run -e sim2real python crazyflow_experiments/load_cell/usd.py collect /media/<card>
 
 The records carry the microsecond timer of the drone (`usecTimestamp`), not the millisecond tick
 that stamps the radio log packets. Both count the same crystal but start at different times during
@@ -18,6 +23,7 @@ Only numpy and the standard library are imported at module level, the decoder ru
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 import shutil
@@ -32,15 +38,18 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from crazyflow_experiments.load_cell import ROLES, SD_CONFIG_DIR
+from crazyflow_experiments.load_cell import RECORDINGS_DIR, ROLES, SD_CONFIG_DIR
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from cflib.crazyflie import Crazyflie
 
 logger = logging.getLogger(__name__)
 
 MAX_VARIABLES = 20  # MAX_USD_LOG_VARIABLES_PER_EVENT, the firmware skips further lines silently
 STOP_WAIT = 1.0  # s, the writer task closes the file in the background after the stop
+PARAM_TIMEOUT = 2.0  # s for a written parameter to read back
 LOGGING_TO = re.compile(r"Logging to:\s*(\S+)")  # Console line naming the file a start opens
 WROTE = re.compile(r"Wrote \d+ B to:\s*(\S+) \((\d+) of (\d+) events\)")  # Console line at a stop
 
@@ -159,8 +168,24 @@ class ConsoleCapture:
         ]
 
 
-def start_logging(cf: Crazyflie, name: str) -> float:
-    """Start logging to the card, which opens a new file, and return the PC time of the request."""
+def set_param(cf: Crazyflie, name: str, value: float):
+    """Write a parameter and wait until it reads back, as the write confirmation arrives later."""
+    cf.param.set_value(name, value)
+    t_end = time.monotonic() + PARAM_TIMEOUT
+    while not np.isclose(float(cf.param.get_value(name)), value, rtol=1e-6, atol=0.0):
+        if time.monotonic() > t_end:
+            raise RuntimeError(f"{name} reads {cf.param.get_value(name)}, not {value}")
+        time.sleep(0.05)
+
+
+def start_logging(cf: Crazyflie, name: str, recorded: datetime) -> float:
+    """Start logging to the card, which opens a new file, and return the PC time of the request.
+
+    Args:
+        cf: The connected drone.
+        name: Its name, for the messages.
+        recorded: Time of the recording folder, which names the file on firmware that can.
+    """
     # Deck detected and config.txt read. canLog is set before the buffer is allocated, so a buffer
     # larger than the free heap only shows as "0 of N events" in the console after the stop
     if int(cf.param.get_value("deck.bcUSD")) != 1:
@@ -173,6 +198,11 @@ def start_logging(cf: Crazyflie, name: str) -> float:
             f"{name}: usd.canLog is 0, the card or its config.txt could not be read. Check that "
             "the card sits fully in the deck and holds config.txt, see usd.py write-config."
         )
+    if cf.param.toc.get_element_by_complete_name("usd.fileDate") is None:
+        logger.warning(f"{name}: its firmware numbers the card file instead of dating it")
+    else:  # Read at the start of the run, the file is named before logging begins
+        set_param(cf, "usd.fileDate", int(recorded.strftime("%Y%m%d")))
+        set_param(cf, "usd.fileTime", int(recorded.strftime("%H%M%S")))
     t_wall = time.time()
     cf.param.set_value("usd.logging", 1)
     logger.info(f"SD card logging started on {name}")
@@ -186,6 +216,38 @@ def stop_logging(cf: Crazyflie, name: str) -> float:
     time.sleep(STOP_WAIT)
     logger.info(f"SD card logging stopped on {name}")
     return t_wall
+
+
+def collect(directory: Path, recordings: Path = RECORDINGS_DIR) -> list[Path]:
+    """Copy card files into the recordings whose `meta.json` names them, `<recording>/sd/<role>/`.
+
+    A file already in its recording is left alone. A numbered name of older firmware recurs once
+    the files on a card are deleted, so a file that several recordings name is skipped.
+
+    Args:
+        directory: A mounted card, or a folder the card files were copied to.
+        recordings: The folder of the recordings.
+
+    Returns:
+        The copied files.
+    """
+    owners: dict[str, list[tuple[Path, str]]] = {}
+    for meta_path in sorted(Path(recordings).glob("*/meta.json")):
+        for role, card in json.loads(meta_path.read_text())["sd"].items():
+            for file_name in card.get("files", []):
+                owners.setdefault(file_name, []).append((meta_path.parent, role))
+    copied = []
+    for path in sorted(p for p in Path(directory).iterdir() if p.is_file()):
+        if len(found := owners.get(path.name, [])) > 1:
+            folders = [folder.name for folder, _ in found]
+            logger.warning(f"{path.name} is named by {folders}, copy it by hand")
+        if len(found) != 1 or (target := found[0][0] / "sd" / found[0][1] / path.name).exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        logger.info(f"Copied {path.name} to {target.parent}")
+        copied.append(target)
+    return copied
 
 
 def decode(path: Path) -> dict[str, np.ndarray]:
@@ -254,14 +316,19 @@ def decode(path: Path) -> dict[str, np.ndarray]:
 
 
 def main():
-    """Command line: write a role's config onto a mounted card."""
-    parser = argparse.ArgumentParser(description="Write a card config of the load cell test")
+    """Command line: write a role's config onto a mounted card, or collect its files."""
+    parser = argparse.ArgumentParser(description="Card configs and files of the load cell test")
     commands = parser.add_subparsers(dest="command", required=True)
     write = commands.add_parser("write-config", help="Copy a role's config.txt onto a card")
     write.add_argument("directory", type=Path, help="Root of the mounted card")
     write.add_argument("--role", choices=ROLES, required=True)
+    gather = commands.add_parser("collect", help="Copy card files into their recordings")
+    gather.add_argument("directory", type=Path, help="Mounted card or folder of card files")
     args = parser.parse_args()
-    write_config(args.directory, args.role)
+    if args.command == "write-config":
+        write_config(args.directory, args.role)
+    else:
+        collect(args.directory)
 
 
 if __name__ == "__main__":

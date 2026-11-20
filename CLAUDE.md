@@ -93,11 +93,14 @@ docstring, so only the cases that deviate are listed here.
   on it with its motors off and reads it with the `loadcell` deck driver of the firmware's sysid
   build, the source hovers beside, over and beside it again. `deploy.py [--dry-run]` flies it,
   both drones log to their SD cards (`usd.py write-config` puts `sd/config_<role>.txt` on a card)
-  and the victim streams the load cell over the radio at 100 Hz. `convert.py <recording>` maps
-  every onboard clock onto PC time (`sync.py`): the tick through the arrival times of the radio
-  packets, the SD timer through a variable both log, so it needs the card files copied into
-  `<recording>/sd/<role>/` first. Firmware older than bitcraze crazyflie-firmware#1684 (the copy in
-  `submodules/` among it) runs the SD timer 85/84 slow, which the sync detects and corrects.
+  and the victim streams the load cell over the radio at 100 Hz. Firmware with the
+  `usd.fileDate`/`usd.fileTime` parameters of the patched `usddeck.c` in `../crazyflie-firmware`
+  names each card file after its recording, `<role>_<timestamp>_SD` for `test_<timestamp>`, and
+  `usd.py collect <card>` copies the files into `<recording>/sd/<role>/`. `convert.py <recording>`
+  maps every onboard clock onto PC time (`sync.py`): the tick through the arrival times of the
+  radio packets, the SD timer through a variable both log. Firmware older than bitcraze
+  crazyflie-firmware#1684 (the copy in `submodules/` among it) runs the SD timer 85/84 slow, which
+  the sync detects and corrects.
   Only the source needs an estimator, the victim only its rigid body.
 
 **Real drone deployment** requires launching in separate terminals first:

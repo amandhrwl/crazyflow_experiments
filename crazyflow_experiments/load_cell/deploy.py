@@ -25,6 +25,7 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -307,13 +308,14 @@ def main(dry_run: bool = False):
         victim_config["id"], victim_config["channel"], victim_config["radio"], config["load_cell"]
     )
     folder = new_recording_path(RECORDINGS_DIR, "test", suffix="")
+    recorded = datetime.strptime(folder.name, "test_%Y-%m-%d_%H-%M-%S")  # Names the card files
     folder.mkdir()
     meta = {"config": config, "victim_pos": plan.victim, "source_start": plan.source_start}
     meta |= {"aside": plan.aside, "over": plan.over, "phases": [], "abort": None, "sd": {}}
     phases, records, source_radio = meta["phases"], [], None
     try:
         usd.check_variables(victim.cf, victim.name, usd.role_config("victim").variables)
-        meta["sd"]["victim"] = {"start": usd.start_logging(victim.cf, victim.name)}
+        meta["sd"]["victim"] = {"start": usd.start_logging(victim.cf, victim.name, recorded)}
         t0 = time.time()
         time.sleep(flight["baseline_time"])
         phases.append(("still_before", t0, time.time()))
@@ -341,7 +343,7 @@ def main(dry_run: bool = False):
         previous_handler = signal.signal(signal.SIGINT, land_on_interrupt)
         try:
             usd.check_variables(drone.cf, drone.name, usd.role_config("source").variables)
-            meta["sd"]["source"] = {"start": usd.start_logging(drone.cf, drone.name)}
+            meta["sd"]["source"] = {"start": usd.start_logging(drone.cf, drone.name, recorded)}
             logger.info(f"Source battery {source_radio.latest('pm.vbat'):.2f} V")
             t0 = time.time()
             takeoff(drone, plan.aside, 0.0, calibrate=True, ctrl_freq=flight["ctrl_freq"])

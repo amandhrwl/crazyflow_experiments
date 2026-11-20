@@ -6,6 +6,9 @@ from tests.conftest import module_requires_env
 
 module_requires_env("sim2real")
 
+import json  # noqa: E402
+import logging  # noqa: E402
+from datetime import datetime  # noqa: E402
 from typing import TYPE_CHECKING  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -64,3 +67,81 @@ def test_write_config_refuses_an_unmounted_card(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         usd.write_config(tmp_path / "not_mounted", "victim")
     assert usd.read_config(usd.write_config(tmp_path, "source")) == usd.role_config("source")
+
+
+class FakeParams:
+    """The parameters of a drone with a working card, and its TOC."""
+
+    def __init__(self, names: tuple[str, ...]):
+        """Hold the deck's parameters and `names`."""
+        self.values = {"deck.bcUSD": 1, "usd.canLog": 1, "usd.logging": 0} | dict.fromkeys(names, 0)
+        self.toc = self
+
+    def get_element_by_complete_name(self, name: str) -> str | None:
+        """The TOC entry, None for a parameter the firmware lacks."""
+        return name if name in self.values else None
+
+    def set_value(self, name: str, value: float):
+        """Write a parameter."""
+        self.values[name] = value
+
+    def get_value(self, name: str) -> float:
+        """Read a parameter."""
+        return self.values[name]
+
+
+class FakeDrone:
+    """A connected drone, only its parameters."""
+
+    def __init__(self, names: tuple[str, ...] = ()):
+        """Firmware with the parameters `names` besides the deck's."""
+        self.param = FakeParams(names)
+
+
+def test_start_logging_dates_the_card_file_after_the_recording():
+    """Firmware that can name the file gets the time of the recording folder before the start."""
+    drone = FakeDrone(("usd.fileDate", "usd.fileTime"))
+    usd.start_logging(drone, "cf4", datetime(2026, 11, 20, 5, 26, 55))
+    values = drone.param.values
+    assert (values["usd.fileDate"], values["usd.fileTime"], values["usd.logging"]) == (
+        20261120,
+        52655,
+        1,
+    )
+
+
+def test_start_logging_on_older_firmware_numbers_the_file(caplog: pytest.LogCaptureFixture):
+    """Without the naming parameters the card still logs, under a numbered name."""
+    drone = FakeDrone()
+    with caplog.at_level(logging.WARNING):
+        usd.start_logging(drone, "cf3", datetime(2026, 11, 20, 15, 26, 55))
+    assert drone.param.values["usd.logging"] == 1
+    assert "numbers the card file" in caplog.text
+
+
+def test_collect_copies_each_card_file_into_its_recording(tmp_path: Path):
+    """Files go to the recording and role that named them, a recurring numbered name stays."""
+    recordings, card = tmp_path / "results", tmp_path / "card"
+    card.mkdir()
+    named = {
+        "test_2026-11-20_15-26-55": {
+            "victim": ["victim_2026-11-20_15-26-55_SD"],
+            "source": ["src06"],
+        },
+        "test_2026-11-19_22-42-53": {"victim": ["lcv00"], "source": []},
+        "test_2026-11-21_09-00-00": {"victim": ["lcv00"], "source": []},
+    }
+    for folder, sd in named.items():
+        (recordings / folder).mkdir(parents=True)
+        meta = {"sd": {role: {"files": files} for role, files in sd.items()}}
+        (recordings / folder / "meta.json").write_text(json.dumps(meta))
+    for name in ("victim_2026-11-20_15-26-55_SD", "src06", "lcv00", "config.txt"):
+        (card / name).write_bytes(name.encode())
+    copied = usd.collect(card, recordings)
+    flight = recordings / "test_2026-11-20_15-26-55" / "sd"
+    assert sorted(copied) == [
+        flight / "source" / "src06",
+        flight / "victim" / "victim_2026-11-20_15-26-55_SD",
+    ]
+    assert not list(recordings.glob("test_2026-11-*/sd/victim/lcv00"))
+    assert usd.collect(card, recordings) == []  # Already there

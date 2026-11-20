@@ -1,6 +1,6 @@
 1
 8192
-lcv
+victim
 0
 on:fixedFrequency
 500

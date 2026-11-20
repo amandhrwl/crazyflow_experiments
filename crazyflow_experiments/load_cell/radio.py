@@ -21,7 +21,7 @@ from cflib.crazyflie.log import LogConfig
 from cflib.utils.power_switch import PowerSwitch
 
 from crazyflow_experiments.deploy import crazyflie as deploy_crazyflie
-from crazyflow_experiments.load_cell.usd import ConsoleCapture, check_variables
+from crazyflow_experiments.load_cell.usd import ConsoleCapture, check_variables, set_param
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -32,7 +32,6 @@ TOC_CACHE = Path(deploy_crazyflie.__file__).parent / ".cache"  # Shared with `Dr
 LOAD_CELL_VARIABLES = ("loadcell.rawWeight", "loadcell.weight")
 STATUS_VARIABLES = ("loadcell.rate", "pm.vbat")  # Sample rate of the load cell and the battery
 STATUS_PERIOD_MS = 500
-PARAM_TIMEOUT = 2.0  # s for a written parameter to read back
 
 
 def uri(radio: int, channel: int, drone_id: int) -> str:
@@ -102,16 +101,6 @@ def start_block(
     block.error_cb.add_callback(lambda conf, msg: logger.error(f"Log block {conf.name}: {msg}"))
     block.start()
     return block
-
-
-def set_param(cf: Crazyflie, name: str, value: float):
-    """Write a parameter and wait until it reads back, as the write confirmation arrives later."""
-    cf.param.set_value(name, value)
-    t_end = time.monotonic() + PARAM_TIMEOUT
-    while not np.isclose(float(cf.param.get_value(name)), value, rtol=1e-6, atol=0.0):
-        if time.monotonic() > t_end:
-            raise RuntimeError(f"{name} reads {cf.param.get_value(name)}, not {value}")
-        time.sleep(0.05)
 
 
 class Victim:
