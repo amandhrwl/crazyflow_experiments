@@ -109,8 +109,8 @@ docstring, so only the cases that deviate are listed here.
   Both drones log onboard to micro-SD; the conversion maps each card's clock onto PC time from the
   `ctrltarget` echo of the sent setpoints (`sync.fit_clock`). It also needs the rosbag of `/tf`
   recorded during the flight. `--dry-run` plans a flight without connecting anything.
-- A3 flies the source 0.25, 0.5 and 1.0 m above the victim (`[a3] height_seps`, 0.4, 0.8 and 1.2 m
-  until 21 Nov). A3 on the stand (`a3_deploy.py --flight <k> --stand [--spin] [--legs 3,5-7]`)
+- A3 flies the source 0.25, 0.5 and 0.8 m above the victim (`[a3] height_seps`, 0.4, 0.8 and 1.2 m
+  until 21 Nov; the motion capture loses the source above 1.8 m). A3 on the stand (`a3_deploy.py --flight <k> --stand [--spin] [--legs 3,5-7]`)
   flies the legs at `[stand] height_seps`, 0.25 and 0.5 m, six per flight, over the victim cf10
   clamped on the load cell, centred on its motion capture position and `height_sep` above it; only the source flies, the victim is a `radio.Victim` that streams and
   logs the load cell. With `--spin` it runs at `[stand] hover_cmd` per leg on its battery, along

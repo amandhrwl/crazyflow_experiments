@@ -29,7 +29,7 @@ ctrl_freq = 100
 
 [a3]
 speeds = [0.5, 1.0]                 # v_max is appended by a3_design.py from the arena
-height_seps = [0.25, 0.5, 1.0]      # m, source above the victim (user, 21 Nov; was 0.4, 0.8, 1.2)
+height_seps = [0.25, 0.5, 0.8]      # m, source above the victim; 0.8 at most, the motion capture loses the source higher (user, 21 Nov; was 0.4, 0.8, 1.2)
 lateral_offset = 0.0
 repeats = 3
 ramp = 1.0

@@ -106,7 +106,7 @@ def test_flight_one_is_the_shakedown_order(design: list[dict]):
     rows = flights(design)[1]
     order = [(row["height_sep"], row["speed"]) for row in rows]
     assert order == sorted(order, key=lambda cell: (-cell[0], cell[1]))
-    assert [row["height_sep"] for row in rows] == [1.0] * 3 + [0.5] * 3 + [0.25] * 3
+    assert [row["height_sep"] for row in rows] == [0.8] * 3 + [0.5] * 3 + [0.25] * 3
 
 
 def test_legs_fly_plus_x_and_chain(cfg: dict, design: list[dict]):
@@ -225,13 +225,13 @@ def test_config_rejects_a_short_arena(tmp_path: Path):
 
 
 def test_config_rejects_a_low_ceiling(tmp_path: Path):
-    path = write_config(tmp_path, safety={"arena_max": [2.5, 2.0, 2.0]})  # The 1.0 m pass at 2.0 m
+    path = write_config(tmp_path, safety={"arena_max": [2.5, 2.0, 1.8]})  # The 0.8 m pass at 1.8 m
     with pytest.raises(ValueError, match="ceiling"):
         load_config(path, require_masses=False)
 
 
 def test_config_rejects_a_late_wake(tmp_path: Path):
-    path = write_config(tmp_path, a3={"settle_time": 0.4})  # The wake arrives 0.27 s late at 1.0 m
+    path = write_config(tmp_path, a3={"settle_time": 0.3})  # The wake arrives 0.20 s late at 0.8 m
     with pytest.raises(ValueError, match="settle_time"):
         load_config(path, require_masses=False)
 
@@ -244,5 +244,5 @@ def test_config_rejects_a_return_lane_in_the_wake(tmp_path: Path):
 
 def test_cells_cover_the_grid(cfg: dict):
     cells = design_cells(cfg)
-    assert Counter(dz for dz, _ in cells) == {1.0: 3, 0.5: 3, 0.25: 3}
+    assert Counter(dz for dz, _ in cells) == {0.8: 3, 0.5: 3, 0.25: 3}
     assert Counter(v for _, v in cells) == {0.5: 3, 1.0: 3, 1.4: 3}

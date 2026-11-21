@@ -36,7 +36,7 @@ The hover experiment (`hover/deploy.py`) names and collects its card the same wa
 ## Block A3: flyover passes over a hovering victim
 
 One Crazyflie, the *victim*, hovers at a fixed point. A second, the *source*, flies straight passes
-over it at 0.25, 0.5 and 1.0 m above (0.4, 0.8 and 1.2 m until 21 Nov), at 0.5, 1.0 and `v_max` m/s. Each of the nine cells is flown
+over it at 0.25, 0.5 and 0.8 m above (0.4, 0.8 and 1.2 m until 21 Nov; the motion capture loses the source above 1.8 m), at 0.5, 1.0 and `v_max` m/s. Each of the nine cells is flown
 once per flight in three flights, 27 legs in all. Every pass flies from -x to +x; after it the
 source flies back to the next start point through a lane `return_lane` (1.0 m) to the side of the
 victim, clear of its wake, so it only ever crosses over the victim during a pass. Both drones log
@@ -113,8 +113,8 @@ both report their state: the firmware silently disarms a drone whose motors do n
 arming rpm range (1000 to 3500 rpm), so a drone that did not arm ends the takeoff and both land,
 and the run prints the firmware's console line naming the motor. The takeoff flies both to their
 positions: both climb straight up, the victim to its hover height and the source
-to 2.0 m, the height of the highest pass, turning to face +x; then both fly level to above their
-targets, so the source is at least 1.0 m above the victim even where their paths cross; then the
+to 1.8 m, the height of the highest pass, turning to face +x; then both fly level to above their
+targets, so the source is at least 0.8 m above the victim even where their paths cross; then the
 source sinks to the start point of its first leg. One loop streams the setpoints of both drones at
 100 Hz throughout and checks every tick: fresh motion capture, the arena, the vertical separation
 while the two are horizontally close, each drone's distance from its commanded path of the last
