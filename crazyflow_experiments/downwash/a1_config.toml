@@ -24,14 +24,16 @@ mount = "upright" # "upright" (the A2/A3 mount) or "upside_down"
 clamped = true
 
 [load_cell]
-# The firmware computes loadcell.weight = a * loadcell.rawWeight + b. Calibration run 6 (21 Nov
-# 20:22, 0-50 g, 80 SPS, calibscale.py --drone-on-top with cf10 clamped and its new battery), from
-# crazyflie-firmware/tools/system_id/calibration_run6.toml: grams of upward force on the victim,
-# thrust positive, residuals within 0.02 g. Run 5 (10 SPS, a = 7.26815116086076e-5) read 0.8 %
-# high in this mount at 80 SPS (B2: 50 g read 50.42 g), run 6 reads it within 0.04 g. Neither
-# survives a reboot, the scripts set them after every connect.
-a = 7.212704675083519e-5
-b = 168.3357215657081
+# The firmware computes loadcell.weight = a * loadcell.rawWeight + b. Calibration run 7 (21 Nov
+# 21:58, 0-50 g, 80 SPS, calibscale.py --drone-on-top with cf10 clamped, stand at x = -0.31 m as
+# for A1), from crazyflie-firmware/tools/system_id/calibration_run7.toml:
+# grams of upward force on the victim, thrust positive, residuals within 0.034 g. Its gain matches
+# run 6 (80 SPS, same place, used for A1's first sweep) within 0.02 %; run 5 (10 SPS, a =
+# 7.26815116086076e-5) read 0.8 % high at 80 SPS with the same weight order as run 7, so the rate
+# rather than the order set it apart. Neither survives a reboot, the scripts set them after every
+# connect.
+a = 7.211317922653137e-5
+b = 160.24304209142022
 # Force on the victim, up positive, is force_sign * g / 1000 * (weight - tare). +1 with the
 # drone-on-top calibration for the upright mount: thrust already reads positive (the spec's -1
 # assumed a calibration with positive weights). The conversion asserts that the force rises with
