@@ -11,9 +11,10 @@
 /.pytest_cache/
 /log/
 
-# Experiment outputs
-/results/
-/plots/
+# Experiment outputs. results and plots may be symlinks into the private data repo
+# amandhrwl/crazyflow_experiments_data, hence no trailing slash
+/results
+/plots
 /figures/
 /saves/
 /wandb/
