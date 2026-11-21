@@ -69,7 +69,8 @@ def test_resting_victim_caps_below_its_weight_and_clamped_at_twice_hover():
     resting = CONFIG | {"victim": CONFIG["victim"] | {"clamped": False}}
     cap, reason = thrust_cap(resting, MASS)
     assert cap == pytest.approx(0.8 * MASS * G) and "resting" in reason
-    assert thrust_cap(CONFIG, MASS)[0] == pytest.approx(2 * MASS * G)
+    unrated = CONFIG | {"load_cell": CONFIG["load_cell"] | {"capacity_g": 0}}
+    assert thrust_cap(unrated, MASS)[0] == pytest.approx(2 * MASS * G)
     rated = CONFIG | {"load_cell": CONFIG["load_cell"] | {"capacity_g": 50}}
     assert thrust_cap(rated, MASS) == pytest.approx((0.8 * 0.05 * G, "load cell capacity"))
     with pytest.raises(ValueError, match="capacity_g"):

@@ -124,8 +124,14 @@ def test_window_flags_trend_unsteady_rpm_invalid_rpm_and_gaps():
         signals(np.full(len(t), 0.3), shaky, t), 0, 2, a1_fakes.CF_COEF, {"force": 500}
     )
     assert "rpm_unsteady" in unsteady["flags"]
+    dropout = rpm.copy()
+    dropout[10, 2] = np.nan  # A single 65535 of the telemetry is left out of the mean only
+    kept = window_stats(
+        signals(np.full(len(t), 0.3), dropout, t), 0, 2, a1_fakes.CF_COEF, {"force": 500}
+    )
+    assert "rpm_invalid" not in kept["flags"] and kept["rpm3"] == pytest.approx(15000)
     invalid = rpm.copy()
-    invalid[10, 2] = np.nan
+    invalid[: len(t) // 20, 2] = np.nan  # 5 % of one motor's values, over RPM_INVALID_TOL
     flagged = window_stats(
         signals(np.full(len(t), 0.3), invalid, t), 0, 2, a1_fakes.CF_COEF, {"force": 500}
     )

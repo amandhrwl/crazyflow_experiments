@@ -54,6 +54,9 @@ STABILIZER_PERIOD = 1e-3  # s, the loop in which the DShot telemetry updates the
 # Case R1 with a card: the card has no load cell, the rpm syncs it (it changes every loop pass)
 R1_SYNC = ("motors", "motor.m1_rpm", STABILIZER_PERIOD)
 RPM_STD_TOL = 0.02  # Relative rpm standard deviation over a window that flags it
+# Fraction of rpm values (65535, no telemetry) over a window that flags it. Single dropouts are
+# normal on cf10 (37 of 114000 values in the sweep of 21 Nov) and already left out of the means.
+RPM_INVALID_TOL = 0.01
 TREND_TOL = 0.01  # Force change over a window, relative to its mean, that flags it
 MIN_SAMPLE_FRACTION = 0.5  # Of the samples a window should hold at the card or radio rate
 MIN_CORRELATION = 0.99  # Level means of the force against crazyflow's thrust of their rpm
@@ -169,7 +172,7 @@ def window_stats(
     else:
         out |= {"F_mean": np.nan, "F_std": np.nan, "F_slope": np.nan, "F_trend": np.nan}
     n_invalid = int(np.isnan(rows_rpm).sum()) if len(rows_rpm) else 0
-    if n_invalid:
+    if n_invalid > RPM_INVALID_TOL * max(rows_rpm.size, 1):
         flags.append("rpm_invalid")
     means, stds, squares = [], [], []
     for i in range(N_MOTORS):

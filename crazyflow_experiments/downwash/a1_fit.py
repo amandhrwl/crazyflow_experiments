@@ -312,8 +312,8 @@ def decide(fits: dict[str, Fit], checks: dict[str, dict]) -> dict:
     caveat = ""
     if check["coverage"] < 1:
         caveat = (
-            f"only {check['coverage']:.0%} of the band was measured (resting victim or limits); "
-            "clamp the victim to measure the rest"
+            f"only {check['coverage']:.0%} of the band was measured: a resting victim, the thrust "
+            "cap or a block stopped early (battery) kept the sweep below its top"
         )
     return {"fit": chosen, "verdict": verdict, "caveat": caveat}
 

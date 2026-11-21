@@ -15,7 +15,7 @@ id = 10 # cf10, radio://0/80/2M/E7E7E7E70A, the drone of the load cell tests; no
 channel = 80
 radio = 0
 model = "cf21B_500" # crazyflow's model whose rpm2thrust is checked
-mass_kg = 0.0 # [FILL] cf10 weighed with SD deck, card, markers and battery (or the supply leads)
+mass_kg = 0.05425 # cf10 weighed 21 Nov with SD deck, card, markers and battery (or the supply leads)
 mount = "upright" # "upright" (the A2/A3 mount) or "upside_down"
 # Whether the victim is clamped to the load cell, which then takes the pull above its weight, up
 # to max_thrust_factor_hover and the cell's rating. Clamped on the stand (user, 21 Nov). Resting
@@ -24,12 +24,14 @@ mount = "upright" # "upright" (the A2/A3 mount) or "upside_down"
 clamped = true
 
 [load_cell]
-# The firmware computes loadcell.weight = a * loadcell.rawWeight + b. Calibration run 5 of the new
-# cell (21 Nov, 0-50 g, 10 SPS, calibscale.py --drone-on-top with cf10 on it), from
-# crazyflie-firmware/tools/system_id/calibration.toml: grams of upward force on the victim,
-# thrust positive. Neither survives a reboot, the scripts set them after every connect.
-a = 7.26815116086076e-5
-b = 156.48154812390965
+# The firmware computes loadcell.weight = a * loadcell.rawWeight + b. Calibration run 6 (21 Nov
+# 20:22, 0-50 g, 80 SPS, calibscale.py --drone-on-top with cf10 clamped and its new battery), from
+# crazyflie-firmware/tools/system_id/calibration_run6.toml: grams of upward force on the victim,
+# thrust positive, residuals within 0.02 g. Run 5 (10 SPS, a = 7.26815116086076e-5) read 0.8 %
+# high in this mount at 80 SPS (B2: 50 g read 50.42 g), run 6 reads it within 0.04 g. Neither
+# survives a reboot, the scripts set them after every connect.
+a = 7.212704675083519e-5
+b = 168.3357215657081
 # Force on the victim, up positive, is force_sign * g / 1000 * (weight - tare). +1 with the
 # drone-on-top calibration for the upright mount: thrust already reads positive (the spec's -1
 # assumed a calibration with positive weights). The conversion asserts that the force rises with
@@ -39,9 +41,9 @@ force_sign = 1
 # at (noise 0.012 g); 7 (the spec's) is untested, switch only after B3 passes with it.
 sample_rate = 3
 radio_period_ms = 10 # 100 Hz radio log of the load cell and the motors
-# [FILL] rating of the cell in g; it was calibrated from 0 to 50 g. A clamped victim pulls on it
+# Rating of the cell in g, from its label; it was calibrated from 0 to 50 g. A clamped victim pulls on it
 # with up to 2 x m g minus its weight, so the sweep refuses to run until this is filled in.
-capacity_g = 0
+capacity_g = 100
 
 [sweep]
 # Raw motorPowerSet commands, 0-65535. On the brushless they become the DShot throttle (ratio >> 5;
