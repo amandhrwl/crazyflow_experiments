@@ -3,10 +3,12 @@
 Start the motion capture, an estimator node per drone and the rosbag recorder first, see the
 downwash README. The script connects both drones, checks where they stand, their card variables
 and batteries, starts SD logging, takes both off together from wherever they stand to their
-positions, flies the legs from one loop, lands both in place and stops the logging. Everything the conversion needs goes to
-`results/downwash/a3/flight<k>_<timestamp>/`: `meta.json` (config, design rows, git hash, console
-lines with the SD file names, masses, abort reason, skipped legs, leg flags, both timelines) and
-`records.pkl` (every tick of the takeoff and the flight).
+positions, flies the legs from one loop, lands both in place and stops the logging. Everything the
+conversion needs goes to `results/downwash/a3/flight<k>_<timestamp>/`: `meta.json` (config,
+design rows, git hash, console lines with the SD file names, masses, abort reason, skipped legs,
+leg flags, both timelines) and `records.pkl` (every tick of the takeoff and the flight). The cards
+name their files after the flight, `vic_<timestamp>_SD` and `src_<timestamp>_SD`, on firmware with
+`usd.fileDate` (see `usd.py`), and `usd.py collect <card> --block a3` copies them into the folder.
 
 `--dry-run` prints the leg table and the closest approach of the two commanded paths, saves
 `plots/downwash/a3_flight<k>_timeline.png` and stops before connecting. `--only-source` flies the
@@ -276,6 +278,7 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
     )
 
     folder = new_recording_path(A3_RESULTS_DIR, f"flight{flight_index}", suffix="")
+    recorded = usd.recording_time(folder)  # Names both card files after the flight
     _, source_plan = build_flight(rows, cfg)
     targets = {"victim": victim_hover_point(cfg), "source": source_plan.state(0.0)[0]}
     meta = {
@@ -306,7 +309,7 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
             usd.check_variables(drone.cf, drone.name, usd.role_config("a3", name).variables)
         meta["vbat_start"] = check_batteries(drones, cfg)
         for name, drone in drones.items():
-            usd_times[name]["t_wall_start"] = usd.start_logging(drone.cf, drone.name)
+            usd_times[name]["t_wall_start"] = usd.start_logging(drone.cf, drone.name, recorded)
         airborne = True
         with ctrl_c_ends_flight():  # Ctrl+C lands both and keeps the records of the legs flown
             takeoff = takeoff_pair(victim, source, targets, cfg)

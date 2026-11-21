@@ -3,6 +3,12 @@
 Flies the same takeoff, controller and tracking loop as `figure8/deploy.py`. Start the motion
 capture tracker and the estimator for `cf<id>` first, see the main readme.
 
+The drone logs to its micro-SD card throughout. Each run records into
+`results/hover/<name>_<timestamp>/`: `recording.pkl` (the tracked observations and actions),
+`firmware.pkl` (the streamed firmware state) and `meta.json` (config, card file). On firmware with
+`usd.fileDate` the card names its file after the run, `<stem>_<timestamp>_SD` with the stem of the
+card's `config.txt`, and `usd.py collect <card> --block hover` copies it into `sd/drone/`.
+
 Run with
     pixi run -e figure8 python crazyflow_experiments/hover/deploy.py
 """
@@ -13,6 +19,7 @@ import os
 
 os.environ["SCIPY_ARRAY_API"] = "1"  # TODO remove once scipy uses the array API by default
 
+import json
 import logging
 import pickle
 import time
@@ -27,6 +34,7 @@ from crazyflow_experiments.control.interface import control_interface
 from crazyflow_experiments.control.mellinger_controller import MellingerController
 from crazyflow_experiments.deploy.experiment import connect, track
 from crazyflow_experiments.deploy.takeoff import takeoff
+from crazyflow_experiments.downwash import usd
 from crazyflow_experiments.hover import RECORDINGS_DIR
 from crazyflow_experiments.sim2real.utils import generate_filename_from_config
 from crazyflow_experiments.utils.errors import tracking_rmse
@@ -34,8 +42,6 @@ from crazyflow_experiments.utils.paths import new_recording_path
 
 if TYPE_CHECKING:
     from cflib.crazyflie.log import LogConfig
-
-    from crazyflow_experiments.deploy.crazyflie import Drone
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("crazyflow_experiments.hover.deploy")  # Not __name__, which is __main__
@@ -103,28 +109,12 @@ class FirmwareMonitor:
             )
 
 
-
-def start_usd_logging(drone: Drone) -> None:
-    """Start logging to the micro-SD card deck. Each start opens a new file on the card."""
-    for name in ("deck.bcUSD", "usd.canLog"):  # Deck detected, config.txt read and buffer allocated
-        if int(drone.cf.param.get_value(name)) != 1:
-            raise RuntimeError(f"{name} is not 1: SD deck not detected or config.txt not read")
-    drone.cf.param.set_value("usd.logging", 1)
-    logger.info("SD card logging started")
-
-
-def stop_usd_logging(drone: Drone) -> None:
-    """Stop logging so the firmware flushes its buffer, writes the CRC and closes the file."""
-    drone.cf.param.set_value("usd.logging", 0)
-    time.sleep(1.0)  # The writer task closes the file in the background
-    logger.info("SD card logging stopped")
-
 def main(calibrate: bool = True, save: bool = True) -> None:
     """Take off, hover at the configured origin, return home and save the recording.
 
     Args:
         calibrate: Calibrate the drone orientation once it hovers after takeoff.
-        save: Write the recorded observations and actions to `results/hover/`.
+        save: Write the recording folder to `results/hover/`.
     """
     config = toml.load(Path(__file__).parent / "config.toml")
     model = config["drone"]["model"]
@@ -149,33 +139,42 @@ def main(calibrate: bool = True, save: bool = True) -> None:
     }
     controller = MellingerController(initial_obs, trajectory, model, mass=config["drone"]["mass"])
 
+    # Reserved now, its timestamp names the card file
+    folder = new_recording_path(RECORDINGS_DIR, generate_filename_from_config(config, True), "")
     monitor = FirmwareMonitor()
     drone = connect(
         config, control_interface(ctrl_type), log_variables=FIRMWARE_LOG, log_callback=monitor
     )
+    console = usd.ConsoleCapture(drone.cf)
+    card: dict = {}
 
     try:
-        start_usd_logging(drone)
+        card["start"] = usd.start_logging(drone.cf, drone.name, usd.recording_time(folder))
         takeoff(drone, pos_start, yaw_start, calibrate=calibrate)
         logger.info(f"Hovering at {pos_start} for {trajectory.duration} s")
         data = track(drone, controller, ctrl_freq, trajectory_config.start_time)
         logger.info("Hover finished, returning home")
         drone.return_to_start()
     finally:  # Close the SD log file, then kill the drone
-        stop_usd_logging(drone)
+        if "start" in card:
+            card["stop"] = usd.stop_logging(drone.cf, drone.name)
+        card |= {"files": console.files(), "written": console.written()}
         drone.close()
+    logger.info(f"Card file {card['files'] or 'not reported, see the card'}")
 
     if data:
         t = np.array([d["t"] for d in data])
         pos = np.array([d["pos"] for d in data])
         logger.info(f"Hover RMSE: {tracking_rmse(t, pos, trajectory):.4f} m")
     if save:
-        path = new_recording_path(RECORDINGS_DIR, generate_filename_from_config(config, True))
-        logger.info(f"Storing data to {path}")
-        with open(path, "wb") as f:
+        folder.mkdir()
+        logger.info(f"Storing data to {folder}")
+        with open(folder / "recording.pkl", "wb") as f:
             pickle.dump(data, f)
-        with open(path.with_name(f"{path.stem}_firmware.pkl"), "wb") as f:
+        with open(folder / "firmware.pkl", "wb") as f:
             pickle.dump(monitor.samples, f)
+        meta = {"config": config, "sd": {"drone": card}}
+        (folder / "meta.json").write_text(json.dumps(meta, indent=2))
 
 
 if __name__ == "__main__":

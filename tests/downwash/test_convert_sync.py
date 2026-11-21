@@ -132,6 +132,26 @@ def test_change_events():
     np.testing.assert_array_equal(new, [[1, 1], [1, 2], [0, 2]])
 
 
+def test_find_sd_file_takes_new_and_old_card_names(tmp_path: Path):
+    """Dated names of firmware that names the files, numbered ones of older flights, overrides."""
+    folder = tmp_path / "flight1_2026-11-22_10-00-00"
+    for role, name in (("victim", "vic_2026-11-22_10-00-00_SD"), ("source", "src07")):
+        (folder / "sd" / role).mkdir(parents=True)
+        (folder / "sd" / role / name).write_bytes(b"\xbc")
+    meta = {"usd": {"victim": {"files": ["vic_2026-11-22_10-00-00_SD"]}, "source": {"files": []}}}
+    victim = convert_a3.find_sd_file(folder, "victim", None, meta)
+    assert victim == folder / "sd" / "victim" / "vic_2026-11-22_10-00-00_SD"
+    # The console line was lost, and the only file there is an old numbered one
+    assert convert_a3.find_sd_file(folder, "source", None, meta).name == "src07"
+    meta["usd"]["source"]["files"] = ["src07"]  # Reported by the console of an older flight
+    assert convert_a3.find_sd_file(folder, "source", None, meta).name == "src07"
+    assert convert_a3.find_sd_file(folder, "victim", str(victim), meta) == victim
+    (folder / "sd" / "victim" / "vic03").write_bytes(b"\xbc")
+    assert convert_a3.find_sd_file(folder, "victim", "vic03", meta).name == "vic03"
+    with pytest.raises(FileNotFoundError):
+        convert_a3.find_sd_file(folder, "victim", "vic04", meta)
+
+
 def test_lag_recovers_a_shift():
     t = np.arange(0.0, 2.0, 0.001)
     bump = np.exp(-(((t - 1.0) / 0.08) ** 2))

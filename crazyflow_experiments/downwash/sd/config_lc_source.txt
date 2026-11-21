@@ -1,6 +1,6 @@
 1
 8192
-source
+src
 0
 on:fixedFrequency
 500

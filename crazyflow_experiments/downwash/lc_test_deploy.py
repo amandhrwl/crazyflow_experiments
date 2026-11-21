@@ -31,7 +31,6 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -338,7 +337,7 @@ def main(dry_run: bool = False, spin: bool = False):
         victim_config["id"], victim_config["channel"], victim_config["radio"], config["load_cell"]
     )
     folder = new_recording_path(LC_RESULTS_DIR, "test", suffix="")
-    recorded = datetime.strptime(folder.name, "test_%Y-%m-%d_%H-%M-%S")  # Names the card files
+    recorded = usd.recording_time(folder)  # Names the card files
     folder.mkdir()
     meta = {"config": config, "victim_pos": plan.victim, "source_start": plan.source_start}
     meta |= {"aside": plan.aside, "over": plan.over, "phases": [], "abort": None, "sd": {}}

@@ -10,11 +10,26 @@ They share one layer:
 
 | File | Role |
 |---|---|
-| `usd.py` | Card configs onto a card (`write-config --block <a1, a3, lc> --role <role>`), logging start and stop, card files into their recordings (`collect`), the card bench test (`bench`), the log decoder |
-| `sd/config_<block>_<role>.txt` | The card configs of every block |
+| `usd.py` | Card configs onto a card (`write-config --block <a1, a3, lc> --role <role>`), logging start and stop, card files into their recordings (`collect --block <a1, a3, lc, hover>`), the card bench test (`bench`), the log decoder |
+| `sd/config_<block>_<role>.txt` | The card configs of every block, file stem `vic` on the victim and `src` on the source |
 | `sync.py` | Onboard clocks onto PC time: through the radio (A1, load cell test) or the setpoint echo (A3) |
 | `radio.py` | Radio logs stamped with their PC arrival time, the victim's link on the load cell |
 | `thrust.py` | Rotor thrust from the measured rpm: crazyflow's rpm2thrust times the drone's `thrust_scale` |
+
+Every card file is named after its recording: the scripts set `usd.fileDate` and `usd.fileTime`
+to the timestamp of the recording folder before they start the card, and the card writes
+`<stem>_<YYYY-MM-DD>_<hh-mm-ss>_SD`, e.g. `vic_2026-11-21_16-31-44_SD` for
+`results/load_cell/test_2026-11-21_16-31-44`. The console line naming it goes into the
+recording's `meta.json`, and after the run
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/usd.py collect /media/<card> --block <a1|a3|lc|hover>
+```
+
+copies every file of the card into `<recording>/sd/<role>/` of the recording that names it. This
+needs the patched `usddeck.c` of `../crazyflie-firmware`; older firmware numbers the files
+(`vicNN`, `srcNN`) with a warning, and the conversions still find those by the console's name.
+The hover experiment (`hover/deploy.py`) names and collects its card the same way.
 
 ## Block A3: flyover passes over a hovering victim
 
@@ -83,8 +98,9 @@ Fly in this order, and look at each flight before the next:
 | F2, F3 | `--flight 2`, `--flight 3` | |
 | Make-up | `design.py --makeup <legs>` writes `design_makeup_f4_legs….csv`, flown with `--flight 4 --design <that csv>` | the legs of F1–F3 whose `summary.csv` status is not `ok`: `hard_fail` (e.g. `sd_gap_*`, a card stall inside the label window; stalls elsewhere only flag `sd_gap_outside_label_*`), `skipped` or `not_flown`; they keep their leg numbers |
 
-Before each flight: fresh batteries in both drones (at least 3.8 V at rest), cards empty apart from
-`config.txt` or the next file numbers noted, doors closed and ventilation off. The drones may stand
+Before each flight: fresh batteries in both drones (at least 3.8 V at rest), doors closed and
+ventilation off. The cards name their files after the flight; on older firmware they number them,
+so note the next file numbers. The drones may stand
 anywhere inside the arena with `x_margin` to its walls, at least 1 m apart; the script refuses to
 take off otherwise.
 
@@ -111,11 +127,12 @@ setpoint, the victim's excursion and its position spread in the pre-pass hover, 
 
 ### After a flight
 
-Copy the SD files into the flight folder, the console lines in `meta.json` name them:
+Copy the SD files into the flight folder, the console lines in `meta.json` name them, with
+`usd.py collect /media/<card> --block a3` for each card:
 
 ```
-results/downwash/a3/flight<k>_<timestamp>/sd/victim/vicNN
-results/downwash/a3/flight<k>_<timestamp>/sd/source/srcNN
+results/downwash/a3/flight<k>_<timestamp>/sd/victim/vic_<timestamp>_SD   (vicNN before)
+results/downwash/a3/flight<k>_<timestamp>/sd/source/src_<timestamp>_SD   (srcNN before)
 ```
 
 and convert:
@@ -223,8 +240,8 @@ about 70 s in all:
 1. The victim runs the sysid build of the firmware (`CONFIG_DECK_LOADCELL`, `bcLoadcell` forced),
    which `lc_test_deploy.py` checks in its log TOC, the source a plain `cf21bl_defconfig` build. Firmware
    with the `usd.fileDate` parameter of our `usddeck.c` names each card file after its recording,
-   `victim_2026-11-20_15-26-55_SD` for the recording `test_2026-11-20_15-26-55`; older firmware
-   numbers it `victimNN` and `lc_test_deploy.py` warns.
+   `vic_2026-11-21_16-31-44_SD` for the recording `test_2026-11-21_16-31-44`; older firmware
+   numbers it `vicNN` and `lc_test_deploy.py` warns.
 2. Write both card configs, with the cards in the PC, and put each card back in its drone before
    power-up:
 

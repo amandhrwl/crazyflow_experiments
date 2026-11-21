@@ -1,7 +1,8 @@
 """Convert one A3 flight into per-leg arrays in the thesis format.
 
 The inputs are the flight folder of `deploy_a3.py` (`meta.json`, `records.pkl`), the SD logs of
-both drones, copied into its `sd/victim/` and `sd/source/`, and the rosbag of `/tf` recorded during
+both drones, copied into its `sd/victim/` and `sd/source/` (`usd.py collect <card> --block a3`),
+and the rosbag of `/tf` recorded during
 the flight. numpy and scipy do the computing; crazyflow is only read for the drone parameters and
 rosbags for the bag.
 
@@ -27,7 +28,12 @@ wrong scale also distorts every change of thrust during the pass.
 
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/convert_a3.py <flight folder> \
-        --bag results/downwash/a3/bags/flight<k> [--victim-sd vicNN] [--source-sd srcNN]
+        --bag results/downwash/a3/bags/flight<k> [--victim-sd FILE] [--source-sd FILE]
+
+The SD file of each drone is the one its console reported in `meta.json`, `vic_<timestamp>_SD`
+and `src_<timestamp>_SD` on firmware that names the files after the flight, `vicNN` and `srcNN`
+before; without that report, the file dated with the flight's timestamp in `sd/<role>/`, see
+`usd.sd_file`. `--victim-sd` and `--source-sd` name another file.
 """
 
 from __future__ import annotations
@@ -1014,12 +1020,16 @@ def flight_checks(rows: Sequence[Mapping], sync: Mapping) -> dict:
 
 
 def find_sd_file(folder: Path, role: str, name: str | None, meta: Mapping) -> Path:
-    """The SD log of a role: a path, a name in `sd/<role>/`, or the file the console reported."""
+    """The SD log of a role: a path, a name in `sd/<role>/`, or the recording's, see `usd.sd_file`.
+
+    Args:
+        folder: The flight folder.
+        role: "victim" or "source".
+        name: A file named on the command line, None for the one `meta.json` names.
+        meta: The flight's `meta.json`.
+    """
     if name is None:
-        files = meta["usd"][role]["files"]
-        if not files:
-            raise RuntimeError(f"The console did not report the {role}'s SD file, name it")
-        name = Path(files[-1]).name
+        return usd.sd_file(folder, role, meta)
     if (path := Path(name)).is_file():
         return path
     path = folder / "sd" / role / name

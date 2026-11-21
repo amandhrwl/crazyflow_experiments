@@ -1,6 +1,6 @@
 1
 8192
-a1
+vic
 0
 on:fixedFrequency
 500

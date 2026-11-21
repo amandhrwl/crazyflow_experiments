@@ -2,8 +2,8 @@
 
 Copy the card files into the recording first, `usd.py collect <card> --block lc` puts them there:
 
-    results/load_cell/test_<timestamp>/sd/victim/victim_<timestamp>_SD
-    results/load_cell/test_<timestamp>/sd/source/source_<timestamp>_SD
+    results/load_cell/test_<timestamp>/sd/victim/vic_<timestamp>_SD
+    results/load_cell/test_<timestamp>/sd/source/src_<timestamp>_SD
 
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/lc_test_convert.py \

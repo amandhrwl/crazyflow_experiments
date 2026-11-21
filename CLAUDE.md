@@ -94,6 +94,14 @@ docstring, so only the cases that deviate are listed here.
   (onboard clocks onto PC time), `radio.py` (radio logs and the victim's link on the load cell) and
   `thrust.py` (rotor thrust from the rpm, crazyflow's rpm2thrust times the drone's `thrust_scale`).
   `usd.py write-config <card> --block <a1|a3|lc> --role <role>` puts a card config on a card.
+  Every experiment that logs to a card (A1, A3, the load cell test and `hover/deploy.py`) sets
+  `usd.fileDate`/`usd.fileTime` to its recording's timestamp before it starts the card, so firmware
+  with the patched `usddeck.c` of `../crazyflie-firmware` writes `<stem>_<timestamp>_SD`, stem
+  `vic` or `src` from line 3 of the card's config, with the same timestamp as the recording
+  folder; older firmware numbers the files `vicNN`, `srcNN` with a warning. The console's name
+  goes into the recording's `meta.json`, `usd.py collect <card> --block <a1|a3|lc|hover>` copies
+  the card's files into `<recording>/sd/<role>/`, and `usd.sd_file` finds a role's file there by
+  that name, the recording's timestamp, or as the only file.
 - Block A3 of `downwash/` flies two Crazyflies at once: the victim hovers while the source passes
   over it. `design.py` writes the leg table, `deploy_a3.py --flight <k>` flies one flight of it,
   both drones served by the one loop of `downwash/pair.py` from the joint takeoff to the joint
@@ -108,8 +116,8 @@ docstring, so only the cases that deviate are listed here.
   on the load cell, both drones log to their SD cards and the victim streams the load cell over the
   radio at 100 Hz. Firmware with the `usd.fileDate`/`usd.fileTime` parameters of the patched
   `usddeck.c` in `../crazyflie-firmware` names each card file after its recording,
-  `<role>_<timestamp>_SD` for `test_<timestamp>`, and `usd.py collect <card> --block lc` copies
-  the files into `results/load_cell/<recording>/sd/<role>/`. `lc_test_convert.py <recording>` maps
+  `vic_<timestamp>_SD` and `src_<timestamp>_SD` for `test_<timestamp>`, and
+  `usd.py collect <card> --block lc` copies the files into `results/load_cell/<recording>/sd/<role>/`. `lc_test_convert.py <recording>` maps
   every onboard clock onto PC time (`sync.sync_drone`): the tick through the arrival times of the
   radio packets, the SD timer through a variable both log. Firmware older than bitcraze
   crazyflie-firmware#1684 (the copy in `submodules/` among it) runs the SD timer 85/84 slow, which

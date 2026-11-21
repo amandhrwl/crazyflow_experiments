@@ -37,7 +37,6 @@ import sys
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -376,7 +375,7 @@ def main(block: str, dry_run: bool, seed_from: Path | None, unarmed: bool):
         predictor = predictor_from_block(seed_from, model)
     cap, cap_reason = thrust_cap(config, mass)
     folder = new_recording_path(A1_RESULTS_DIR, block, suffix="")
-    recorded = datetime.strptime(folder.name, f"{block}_%Y-%m-%d_%H-%M-%S")  # Names the card file
+    recorded = usd.recording_time(folder)  # Names the card file
     folder.mkdir()
     victim_cfg, load_cell = config["victim"], config["load_cell"]
     period = load_cell["radio_period_ms"]

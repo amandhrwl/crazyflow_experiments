@@ -1,15 +1,20 @@
 """Onboard logging to the micro-SD card decks of the downwash blocks.
 
 The firmware (`usddeck.c`) reads `config.txt` once at boot and opens a new file each time
-`usd.logging` is set to 1. Firmware with the `usd.fileDate` and `usd.fileTime` parameters names it
-after the recording that `start_logging` passes, `<name>_YYYY-MM-DD_hh-mm-ss_SD` with `<name>` from
-`config.txt`; without a recording, or on older firmware, it numbers it `<name>NN`. The file only
-gets its CRC32 when logging is stopped again with `usd.logging = 0`.
+`usd.logging` is set to 1. Firmware with the `usd.fileDate` and `usd.fileTime` parameters (the
+patched `usddeck.c` of `../crazyflie-firmware`) names it after the recording that `start_logging`
+passes, `<stem>_YYYY-MM-DD_hh-mm-ss_SD` with the stem from line 3 of `config.txt` (`vic` or `src`)
+and the timestamp of the recording folder; older firmware numbers it `<stem>NN` and
+`start_logging` warns. The file only gets its CRC32 when logging is stopped again with
+`usd.logging = 0`. Every experiment records the name the console reports in its `meta.json`,
+and `sd_file` finds the file in `<recording>/sd/<role>/` by it, by the recording's timestamp, or
+as the only file there.
 
 Every card config lives in `sd/config_<block>_<role>.txt` (`CARD_CONFIGS`). `write-config` copies
 one onto a mounted card, `collect` copies the files from a card, or a folder they were copied to,
-into the recordings whose `meta.json` names them, and `bench` logs on the ground for a flight's
-length and reports how many events the card dropped while it stalled:
+into the recordings whose `meta.json` names them (A1, A3, the load cell test and the hover), and
+`bench` logs on the ground for a flight's length and reports how many events the card dropped
+while it stalled:
 
     pixi run -e sim2real python crazyflow_experiments/downwash/usd.py write-config /media/<card> \
         --block a3 --role victim
@@ -40,16 +45,22 @@ import time
 import warnings
 import zlib
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from crazyflow_experiments.downwash import A1_RESULTS_DIR, LC_RESULTS_DIR, ROLES, SD_CONFIG_DIR
+from crazyflow_experiments.downwash import (
+    A1_RESULTS_DIR,
+    A3_RESULTS_DIR,
+    LC_RESULTS_DIR,
+    ROLES,
+    SD_CONFIG_DIR,
+)
+from crazyflow_experiments.hover import RECORDINGS_DIR as HOVER_RESULTS_DIR
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from cflib.crazyflie import Crazyflie
     from numpy.typing import ArrayLike, NDArray
 
@@ -59,7 +70,15 @@ logger = logging.getLogger(__name__)
 
 # The card configs of every block: A1 logs the victim only, A3 and the load cell test both drones
 CARD_CONFIGS = {"a1": ("victim",), "a3": ROLES, "lc": ROLES}
-RECORDINGS = {"a1": A1_RESULTS_DIR, "lc": LC_RESULTS_DIR}  # Where `collect` puts card files
+# Where `collect` puts card files, one folder per recording with its meta.json
+RECORDINGS = {
+    "a1": A1_RESULTS_DIR,
+    "a3": A3_RESULTS_DIR,
+    "lc": LC_RESULTS_DIR,
+    "hover": HOVER_RESULTS_DIR,
+}
+STAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"  # Of `utils.paths.new_recording_path`, and of dated card files
+STAMP = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$")  # A recording folder's timestamp
 MAX_VARIABLES = 20  # MAX_USD_LOG_VARIABLES_PER_EVENT, the firmware skips further lines silently
 MAX_NAME = 10  # Characters of the file stem the firmware keeps
 RPM_INVALID = 65535  # motor.mX_rpm without a reading
@@ -339,7 +358,7 @@ def collect(directory: Path, recordings: Path = LC_RESULTS_DIR) -> list[Path]:
     """
     owners: dict[str, list[tuple[Path, str]]] = {}
     for meta_path in sorted(Path(recordings).glob("*/meta.json")):
-        for role, card in json.loads(meta_path.read_text())["sd"].items():
+        for role, card in cards(json.loads(meta_path.read_text())).items():
             for file_name in card.get("files", []):
                 owners.setdefault(file_name, []).append((meta_path.parent, role))
     copied = []
@@ -356,17 +375,47 @@ def collect(directory: Path, recordings: Path = LC_RESULTS_DIR) -> list[Path]:
     return copied
 
 
+def recording_time(folder: Path) -> datetime:
+    """Time of a recording from the timestamp that ends its folder name, see `new_recording_path`.
+
+    `start_logging` names the card files with it, so they carry the folder's timestamp.
+    """
+    if (match := STAMP.search(Path(folder).name)) is None:
+        raise ValueError(f"{folder} does not end in a recording timestamp")
+    return datetime.strptime(match.group(), STAMP_FORMAT)
+
+
+def cards(meta: dict) -> dict[str, dict]:
+    """The card entries of a recording's `meta.json` per role; A3 keeps them under "usd"."""
+    return meta["sd"] if "sd" in meta else meta["usd"]
+
+
 def sd_file(folder: Path, role: str, meta: dict) -> Path:
-    """The card file of a role in a recording, named by the console or the only one there."""
-    directory = folder / "sd" / role
-    names = meta["sd"][role]["files"]
-    if not names:  # The console line was lost, take the only file there
-        names = [p.name for p in directory.glob("*")] if directory.is_dir() else []
-    if len(names) != 1:
-        raise FileNotFoundError(f"Expected one card file of the {role} in {directory}: {names}")
-    if not (path := directory / names[0]).is_file():
-        raise FileNotFoundError(f"Copy {names[0]} from the {role} card to {directory}/")
-    return path
+    """The card file of a role in a recording, `<recording>/sd/<role>/<file>`.
+
+    The file the console reported in `meta.json` comes first, the last one if logging started more
+    than once; that is the dated name on firmware that names the file, the numbered one otherwise
+    and in recordings from before. Without a console report, the file dated with the recording's
+    timestamp, `<stem>_<timestamp>_SD`, is taken, else the only file there.
+
+    Args:
+        folder: The recording.
+        role: The role whose card file it is.
+        meta: The recording's `meta.json`.
+    """
+    directory = Path(folder) / "sd" / role
+    if names := cards(meta)[role].get("files", []):
+        if not (path := directory / Path(names[-1]).name).is_file():
+            raise FileNotFoundError(
+                f"Copy {path.name} from the {role} card to {directory}/, see usd.py collect"
+            )
+        return path
+    found = sorted(p for p in directory.iterdir() if p.is_file()) if directory.is_dir() else []
+    if (stamp := STAMP.search(Path(folder).name)) is not None:
+        found = [p for p in found if p.name.endswith(f"_{stamp.group()}_SD")] or found
+    if len(found) != 1:
+        raise FileNotFoundError(f"Expected one card file of the {role} in {directory}: {found}")
+    return found[0]
 
 
 @dataclass
@@ -590,7 +639,7 @@ def main():
     write.add_argument("--role", choices=ROLES, required=True)
     gather = commands.add_parser("collect", help="Copy card files into their recordings")
     gather.add_argument("directory", type=Path, help="Mounted card or folder of card files")
-    gather.add_argument("--block", choices=RECORDINGS, required=True)
+    gather.add_argument("--block", choices=RECORDINGS, required=True, help="Whose recordings")
     test = commands.add_parser("bench", help="Log on the ground and count the dropped events")
     test.add_argument("--role", choices=ROLES, required=True)
     test.add_argument("--seconds", type=float, default=300.0, help="Logging duration")

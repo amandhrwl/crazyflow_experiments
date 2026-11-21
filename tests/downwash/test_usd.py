@@ -9,6 +9,7 @@ module_requires_env("sim2real")
 import json  # noqa: E402
 import logging  # noqa: E402
 from datetime import datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 from typing import TYPE_CHECKING  # noqa: E402
 
@@ -22,7 +23,6 @@ from tests.downwash.sync_fakes import usd_file  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 VARIABLES = [("stateEstimate.z", "f"), ("stateEstimateZ.quat", "I"), ("motor.m1_rpm", "H")]
 
@@ -140,12 +140,17 @@ def test_quaternion_round_trip():
 
 
 def test_every_card_config_parses_within_the_deck_limits():
-    """Each block's stored configs parse and keep the 8192 B buffer the cf21B's heap allows."""
+    """Each block's stored configs parse and keep the 8192 B buffer the cf21B's heap allows.
+
+    The stem of every card file comes from line 3: `vic` on the victim, `src` on the source, as the
+    cards wrote `vic_2026-11-21_16-31-44_SD` and `src_2026-11-21_16-31-44_SD` on 21 Nov.
+    """
     for block, roles in usd.CARD_CONFIGS.items():
         for role in roles:
             config = usd.role_config(block, role)
             assert config.buffer <= 8192, (block, role)
             assert config.frequency == 500, (block, role)
+            assert config.name == {"victim": "vic", "source": "src"}[role], (block, role)
 
 
 @pytest.mark.parametrize(("role", "name"), [("victim", "vic"), ("source", "src")])
@@ -344,3 +349,60 @@ def test_collect_copies_each_card_file_into_its_recording(tmp_path: Path):
     ]
     assert not list(recordings.glob("test_2026-11-*/sd/victim/lcv00"))
     assert usd.collect(card, recordings) == []  # Already there
+
+
+def test_recording_time_is_the_timestamp_of_the_folder():
+    """The deploy scripts name the card files with it, so file and folder carry the same time."""
+    folder = Path("results/downwash/a3/flight2_2026-11-22_09-05-07")
+    assert usd.recording_time(folder) == datetime(2026, 11, 22, 9, 5, 7)
+    with pytest.raises(ValueError, match="timestamp"):
+        usd.recording_time(Path("test_fake"))
+
+
+def card_folder(tmp_path: Path, files: list[str]) -> Path:
+    """A recording whose victim card files are `files`."""
+    folder = tmp_path / "test_2026-11-22_10-00-00"
+    (folder / "sd" / "victim").mkdir(parents=True)
+    for name in files:
+        (folder / "sd" / "victim" / name).write_bytes(b"\xbc")
+    return folder
+
+
+def test_sd_file_takes_the_name_the_console_reported(tmp_path: Path):
+    """A dated name, a numbered one of older firmware, and the last of several starts."""
+    folder = card_folder(tmp_path, ["vic_2026-11-22_10-00-00_SD", "vic03", "vic04"])
+    for files, expected in (
+        (["vic_2026-11-22_10-00-00_SD"], "vic_2026-11-22_10-00-00_SD"),
+        (["vic03"], "vic03"),
+        (["vic03", "vic04"], "vic04"),
+    ):
+        meta = {"sd": {"victim": {"files": files}}}
+        assert usd.sd_file(folder, "victim", meta).name == expected
+    with pytest.raises(FileNotFoundError, match="collect"):
+        usd.sd_file(folder, "victim", {"sd": {"victim": {"files": ["vic05"]}}})
+
+
+def test_sd_file_without_a_console_report_takes_the_dated_file(tmp_path: Path):
+    """The recording's timestamp picks its file among others, the only file is taken as well."""
+    meta = {"usd": {"victim": {"files": []}}}  # A3 keeps its card entries under "usd"
+    folder = card_folder(tmp_path, ["vic_2026-11-21_16-31-44_SD", "vic_2026-11-22_10-00-00_SD"])
+    assert usd.sd_file(folder, "victim", meta).name == "vic_2026-11-22_10-00-00_SD"
+    only = card_folder(tmp_path / "only", ["vic07"])
+    assert usd.sd_file(only, "victim", meta).name == "vic07"
+    both = card_folder(tmp_path / "both", ["vic07", "vic08"])
+    with pytest.raises(FileNotFoundError, match="one card file"):
+        usd.sd_file(both, "victim", meta)
+
+
+def test_collect_finds_a3_flights_by_their_usd_entries(tmp_path: Path):
+    """A3's meta.json names its cards under "usd", collect copies them all the same."""
+    recordings, card = tmp_path / "a3", tmp_path / "card"
+    card.mkdir()
+    flight = recordings / "flight1_2026-11-22_10-00-00"
+    flight.mkdir(parents=True)
+    meta = {"usd": {"victim": {"files": ["vic_2026-11-22_10-00-00_SD"]}, "source": {"files": []}}}
+    (flight / "meta.json").write_text(json.dumps(meta))
+    (card / "vic_2026-11-22_10-00-00_SD").write_bytes(b"\xbc")
+    copied = usd.collect(card, recordings)
+    assert copied == [flight / "sd" / "victim" / "vic_2026-11-22_10-00-00_SD"]
+    assert usd.sd_file(flight, "victim", meta) == copied[0]

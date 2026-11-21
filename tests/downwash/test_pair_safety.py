@@ -512,6 +512,7 @@ def deploy_env(
     victim = FakeDrone(cfg["drones"]["victim"]["id"], np.array([0.0, 0.0, 0.02]))
     source = FakeDrone(cfg["drones"]["source"]["id"], np.array([-2.0, 0.0, 0.02]))
     sd_calls: list[tuple[str, str]] = []
+    recorded: list[object] = []  # The recording times the cards were started with
     done = threading.Event()
     done.set()
     monkeypatch.setattr(pair, "connect_pair", lambda cfg, only_source: (victim, source))
@@ -522,8 +523,9 @@ def deploy_env(
     monkeypatch.setattr(usd, "read_once", fake_read_once)
     for action in ("start", "stop"):
 
-        def log(cf: object, name: str, action: str = action) -> float:
+        def log(cf: object, name: str, *when: object, action: str = action) -> float:
             sd_calls.append((action, name))
+            recorded.extend(when)
             return clock.time()
 
         monkeypatch.setattr(usd, f"{action}_logging", log)
@@ -534,7 +536,13 @@ def deploy_env(
         flight_cfg["drones"][role]["mass_kg"] = 0.045
     rows = single_leg(flight_cfg, 1.0, 0.8)
     return SimpleNamespace(
-        victim=victim, source=source, sd_calls=sd_calls, cfg=flight_cfg, rows=rows, folder=tmp_path
+        victim=victim,
+        source=source,
+        sd_calls=sd_calls,
+        recorded=recorded,
+        cfg=flight_cfg,
+        rows=rows,
+        folder=tmp_path,
     )
 
 
@@ -620,6 +628,9 @@ def test_deploy_flies_lands_and_records(
     assert meta["usd"]["victim"]["files"] == [f"{vic}_00"]
     assert {"timeline", "leg_stats", "leg_flags", "t_wall_zero"} <= set(meta)
     assert env.sd_calls == [("start", vic), ("start", src), ("stop", vic), ("stop", src)]
+    # Both cards name their files after the flight folder, vic_<timestamp>_SD and src_<timestamp>_SD
+    (folder,) = env.folder.glob("flight1_*")
+    assert env.recorded == [usd.recording_time(folder)] * 2
     for drone in (env.victim, env.source):
         names = drone.names()
         assert names.count("land") == 1
