@@ -178,10 +178,11 @@ def test_lc_card_configs_log_the_sync_variable(role: str):
 def test_lc_victim_card_logs_the_load_cell_and_what_its_force_balance_needs():
     """The raw load cell reading, the motor rpm for the thrust, the accelerometer and the tilt.
 
-    The force follows from the raw reading, so the firmware's converted weight is not logged.
+    The force follows from the raw reading, so the firmware's converted weight is not logged. The
+    tilt comes from the compressed attitude quaternion, as on the A3 cards.
     """
     variables = usd.role_config("lc", "victim").variables
-    needed = ["loadcell.rawWeight", "acc.z", "stateEstimate.roll", "stateEstimate.pitch"]
+    needed = ["loadcell.rawWeight", "acc.z", "stateEstimateZ.quat"]
     assert set(needed + [f"motor.m{i}_rpm" for i in range(1, 5)]) <= set(variables)
     assert "loadcell.weight" not in variables
 

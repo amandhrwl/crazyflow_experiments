@@ -231,7 +231,7 @@ about 70 s in all:
 | File | Role |
 |---|---|
 | `lc_test_config.toml` | Drone ids, load cell calibration and sample rate, flight timings, safety limits |
-| `sd/config_lc_victim.txt`, `sd/config_lc_source.txt` | Card configs, 500 Hz; the victim's logs `loadcell.rawWeight` |
+| `sd/config_lc_victim.txt`, `sd/config_lc_source.txt` | Card configs, 500 Hz, as flown on 21 Nov: the A3 variables, with `loadcell.rawWeight` in place of the victim's `ctrlMel.cmd_thrust` |
 | `lc_test_deploy.py` | Flies the test and records it |
 | `lc_test_convert.py` | Puts the cards, the radio logs and the motion capture onto PC time |
 
