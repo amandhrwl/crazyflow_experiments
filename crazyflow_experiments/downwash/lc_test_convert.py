@@ -1,12 +1,12 @@
 """Put the SD logs, the radio logs and the motion capture of a load cell test onto the PC clock.
 
-Copy the card files into the recording first, `usd.py collect <card>` puts them there:
+Copy the card files into the recording first, `usd.py collect <card> --block lc` puts them there:
 
     results/load_cell/test_<timestamp>/sd/victim/victim_<timestamp>_SD
     results/load_cell/test_<timestamp>/sd/source/source_<timestamp>_SD
 
 Run with
-    pixi run -e sim2real python crazyflow_experiments/load_cell/convert.py \
+    pixi run -e sim2real python crazyflow_experiments/downwash/lc_test_convert.py \
         results/load_cell/test_<timestamp> [--calibration <calib_run.toml>]
 
 Writes `synced.npz` and `sync.json` into the recording, every time in s from the start of the
@@ -22,110 +22,27 @@ import argparse
 import json
 import logging
 import tomllib
-from dataclasses import replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from crazyflow_experiments.load_cell import QUICKLOOK_DIR, usd
-from crazyflow_experiments.load_cell.sync import (
-    ClockMap,
-    fit_radio_clock,
-    match_offset,
-    match_rate,
-    unwrap_ticks,
-)
+from crazyflow_experiments.downwash import LC_PLOTS_DIR, usd
+from crazyflow_experiments.downwash.sync import ACC_SYNC, LOAD_CELL_SYNC, sync_drone, unwrap_ticks
+from crazyflow_experiments.downwash.usd import sd_file
 
 logger = logging.getLogger(__name__)
 
 G = 9.81
-# Fraction of radio samples the shifted card record must reproduce. The card at 500 Hz catches
-# every load cell reading, but only every other value of the accelerometer, which changes at 1 kHz
-MIN_MATCH = 0.3
-MAX_OFFSET_SPREAD = 1e-3  # s, offsets of the two halves of a flight that disagree more fail
-SD_GAP = 0.010  # s, card gaps longer than this are counted
-STABILIZER_PERIOD = 1e-3  # s, the loop that samples the IMU and triggers the card
 # Per drone, its 100 Hz radio block, the variable it also logs to its card and how often that
 # changes in step with the card's sampling, zero for a variable that changes at any time, see
 # `sync.py` for the choice
-SYNC_VARIABLES = {
-    "victim": ("loadcell", "loadcell.rawWeight", 0.0),
-    "source": ("cf_logger_0", "acc.z", STABILIZER_PERIOD),
-}
+SYNC_VARIABLES = {"victim": LOAD_CELL_SYNC, "source": ACC_SYNC}
 # Light chart tokens, as in the load cell calibration plot
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, BAND = "#e1e0d9", "#c3c2b7", "#efeee9"
 SERIES = ("#2a78d6", "#eb6834")  # Card, radio
 LABELED_PHASES = ("still_before", "spin_alone", "aside_1", "over", "aside_2", "still_after")
-
-
-def sd_file(folder: Path, role: str, meta: dict) -> Path:
-    """The card file of a role in the recording, named by the console or the only one there."""
-    directory = folder / "sd" / role
-    names = meta["sd"][role]["files"]
-    if not names:  # The console line was lost, take the only file there
-        names = [p.name for p in directory.glob("*")] if directory.is_dir() else []
-    if len(names) != 1:
-        raise FileNotFoundError(f"Expected one card file of the {role} in {directory}: {names}")
-    if not (path := directory / names[0]).is_file():
-        raise FileNotFoundError(f"Copy {names[0]} from the {role} card to {directory}/")
-    return path
-
-
-def sync_drone(
-    radio: dict,
-    role: str,
-    sd: dict[str, np.ndarray],
-    sd_period: float,
-    sync: tuple[str, str, float] | None = None,
-) -> tuple[ClockMap, dict]:
-    """Map a drone's tick and card timer onto PC time, see `sync.py`.
-
-    Args:
-        radio: The drone's radio blocks from `radio.npz`, without the role prefix.
-        role: "victim" or "source".
-        sd: Its decoded card record.
-        sd_period: Period of the card record in s.
-        sync: Radio block, variable and change period of the sync, `SYNC_VARIABLES[role]` if None.
-
-    Returns:
-        The clock map and the numbers that check it.
-    """
-    block, variable, change_period = SYNC_VARIABLES[role] if sync is None else sync
-    card_lag = (sd_period - change_period) / 2
-    t_tick = unwrap_ticks(radio[f"{block}/t_tick_ms"])
-    clock, stats = fit_radio_clock(t_tick, radio[f"{block}/t_pc"])
-    v_sd, v_radio = sd[variable], radio[f"{block}/{variable}"]
-    sd_rate = match_rate(sd["t_us"], v_sd, t_tick, v_radio)
-    t_sd = sd_rate * sd["t_us"] / 1e6
-    offset, fraction = match_offset(t_sd, v_sd, t_tick, v_radio, card_lag)
-    if fraction < MIN_MATCH:
-        raise RuntimeError(
-            f"{role}: the card reproduces only {fraction:.0%} of the radio {variable} at its best "
-            "offset. Is it the card file of this flight?"
-        )
-    # The offset is a constant of the boot, so both halves of the flight have to agree on it
-    half = len(t_tick) // 2
-    halves = [
-        match_offset(t_sd, v_sd, t_tick[part], v_radio[part], card_lag)[0]
-        for part in (slice(None, half), slice(half, None))
-    ]
-    if (spread := abs(halves[1] - halves[0])) > MAX_OFFSET_SPREAD:
-        raise RuntimeError(f"{role}: the halves disagree on the card offset by {spread * 1e3} ms")
-    gaps = np.diff(t_sd)
-    if sd_rate != 1.0:
-        logger.warning(f"{role}: its firmware predates the fix of the card timer, 85/84 applied")
-    stats |= {
-        "sync_variable": variable,
-        "sd_rate": sd_rate,
-        "sd_offset_ms": offset * 1e3,
-        "sd_offset_halves_ms": [h * 1e3 for h in halves],
-        "match_fraction": fraction,
-        "sd_gaps_over_10ms": int(np.count_nonzero(gaps > SD_GAP)),
-        "sd_longest_gap_ms": float(gaps.max() * 1e3),
-    }
-    return replace(clock, sd_offset=offset, sd_rate=sd_rate), stats
 
 
 def phase_forces(t: np.ndarray, force: np.ndarray, phases: list) -> dict[str, dict[str, float]]:
@@ -240,9 +157,9 @@ def convert(folder: Path, calibration: Path | None = None) -> dict:
     data, report = {"t_ref": np.array(t_ref), "victim_pos": victim_pos}, {"t_ref": t_ref}
     for role in ("victim", "source"):
         sd = usd.decode(sd_file(folder, role, meta))
-        sd_period = 1 / usd.role_config(role).frequency
+        sd_period = 1 / usd.role_config("lc", role).frequency
         own = {k.removeprefix(f"{role}/"): v for k, v in radio.items() if k.startswith(role)}
-        clock, report[role] = sync_drone(own, role, sd, sd_period)
+        clock, report[role] = sync_drone(own, role, sd, sd_period, SYNC_VARIABLES[role])
         data[f"{role}_sd/t"] = clock.pc_from_sd(sd["t_us"]) - t_ref
         data |= {f"{role}_sd/{k}": v for k, v in sd.items() if k != "t_us"}
         block = SYNC_VARIABLES[role][0]
@@ -281,7 +198,7 @@ def convert(folder: Path, calibration: Path | None = None) -> dict:
 
     np.savez(folder / "synced.npz", **data)
     (folder / "sync.json").write_text(json.dumps(report, indent=2))
-    quicklook(data, phases, folder.name, QUICKLOOK_DIR / f"{folder.name}.png")
+    quicklook(data, phases, folder.name, LC_PLOTS_DIR / f"{folder.name}.png")
     for name, force in report["load_cell"]["phases"].items():
         logger.info(f"{name:>12}: {force['mean_mN']:+7.2f} mN, std {force['std_mN']:.2f} mN")
     return report

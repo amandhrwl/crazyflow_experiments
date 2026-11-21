@@ -39,7 +39,8 @@ from crazyflow_experiments.downwash.a1_convert import (
     read_steady,
     style,
 )
-from crazyflow_experiments.downwash.a1_stand import N_MOTORS, rotor_rpm, rotor_thrust
+from crazyflow_experiments.downwash.a1_stand import N_MOTORS
+from crazyflow_experiments.downwash.thrust import rotor_rpm, rotor_thrust
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

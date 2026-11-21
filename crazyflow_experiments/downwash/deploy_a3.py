@@ -226,7 +226,7 @@ def outcome_meta(
         "usd": {
             name: {
                 **usd_times[name],
-                "variables": list(usd.role_config(name).variables),
+                "variables": list(usd.role_config("a3", name).variables),
                 "files": consoles[name].files() if name in consoles else [],
                 "skipped_variables": consoles[name].skipped_variables() if name in consoles else [],
                 "console": consoles[name].lines if name in consoles else [],
@@ -300,13 +300,13 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
     takeoff = flight = None
     airborne = landed = False
     try:
-        consoles = {name: usd.capture_console(drone) for name, drone in drones.items()}
+        consoles = {name: usd.ConsoleCapture(drone.cf) for name, drone in drones.items()}
         check_placement(drones, cfg)
         for name, drone in drones.items():
-            usd.check_variables(drone, usd.role_config(name).variables)
+            usd.check_variables(drone.cf, drone.name, usd.role_config("a3", name).variables)
         meta["vbat_start"] = check_batteries(drones, cfg)
         for name, drone in drones.items():
-            usd_times[name]["t_wall_start"] = usd.start_usd_logging(drone)
+            usd_times[name]["t_wall_start"] = usd.start_logging(drone.cf, drone.name)
         airborne = True
         with ctrl_c_ends_flight():  # Ctrl+C lands both and keeps the records of the legs flown
             takeoff = takeoff_pair(victim, source, targets, cfg)
@@ -326,7 +326,7 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
             try:
 
                 def stop(item: tuple[str, Drone]):
-                    usd_times[item[0]]["t_wall_stop"] = usd.stop_usd_logging(item[1])
+                    usd_times[item[0]]["t_wall_stop"] = usd.stop_logging(item[1].cf, item[1].name)
 
                 each(drones.items(), stop)
             finally:

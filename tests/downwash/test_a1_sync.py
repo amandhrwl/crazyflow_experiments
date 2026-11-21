@@ -1,4 +1,4 @@
-"""The A1 clock syncs of cases R1 and R2, built on the load cell test's sync, on faked clocks.
+"""The A1 clock syncs of cases R1 and R2, built on `sync.py`, on faked clocks.
 
 R1: the card holds the rpm but not the load cell, so the rpm, which the DShot telemetry updates on
 every loop pass, syncs the card to the radio; a constant offset and the 85/84 card timer are both
@@ -16,9 +16,12 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
 from crazyflow_experiments.downwash.a1_convert import R1_SYNC, edge_time  # noqa: E402
-from crazyflow_experiments.load_cell.convert import sync_drone  # noqa: E402
-from crazyflow_experiments.load_cell.sync import fit_radio_clock, unwrap_ticks  # noqa: E402
-from tests.load_cell import fakes  # noqa: E402
+from crazyflow_experiments.downwash.sync import (  # noqa: E402
+    fit_radio_clock,
+    sync_drone,
+    unwrap_ticks,
+)
+from tests.downwash import sync_fakes as fakes  # noqa: E402
 
 SD_PERIOD = 0.002  # s, 500 Hz
 TOLERANCE = 0.5e-3  # s, card records against their true PC time, after the latency floor

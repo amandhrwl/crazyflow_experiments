@@ -3,7 +3,7 @@
 The victim's card logs the load cell and the motors at 500 Hz, its radio streams the load cell at
 100 Hz, as in case S. The rotors follow each command with a first-order lag, the thrust is
 crazyflow's curve times `SCALE`, the load cell converts at 80 Hz behind a short low-pass and its
-zero drifts slowly over the block. The clocks come from the load cell test's fakes.
+zero drifts slowly over the block. The clocks come from `sync_fakes`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from crazyflow_experiments.downwash.a1_stand import load_config
-from tests.load_cell import fakes
+from tests.downwash import sync_fakes as fakes
 
 if TYPE_CHECKING:
     from pathlib import Path

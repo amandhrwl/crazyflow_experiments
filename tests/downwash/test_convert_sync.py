@@ -25,12 +25,9 @@ from rosbags.typesys import Stores, get_typestore  # noqa: E402
 
 from crazyflow_experiments.downwash import convert_a3, pair, usd  # noqa: E402
 from crazyflow_experiments.downwash.convert_a3 import (  # noqa: E402
-    ClockFit,
     body_forces,
-    change_events,
     derive,
     fill_dropouts,
-    fit_clock,
     lag,
     resample,
 )
@@ -40,6 +37,7 @@ from crazyflow_experiments.downwash.design import (  # noqa: E402
     load_config,
     model_params,
 )
+from crazyflow_experiments.downwash.sync import ClockFit, change_events, fit_clock  # noqa: E402
 from crazyflow_experiments.downwash.timeline import Pass, victim_hover_point  # noqa: E402
 from tests.downwash.fakes import FakeClock, FakeDrone, fake_read_once, patch_pair  # noqa: E402
 
@@ -294,7 +292,7 @@ def synthetic_flight(
     coef = np.asarray(model_params("cf21B_500")["rpm2thrust"]).reshape(-1)
     rng = np.random.default_rng(1)
     for role, (offset, drift) in clocks.items():
-        names = usd.role_config(role).variables
+        names = usd.role_config("a3", role).variables
         t_send = np.array([r["t_wall"] for r in records])
         mm = np.array([r[role]["cmd_mm"] for r in records])
         t_onboard = np.arange(
@@ -334,7 +332,7 @@ def synthetic_flight(
         if role == "victim" and victim_gap is not None:
             written = ~((t_true >= t_cross + victim_gap[0]) & (t_true <= t_cross + victim_gap[1]))
         columns = {key: np.asarray(value)[written] for key, value in columns.items()}
-        name = usd.role_config(role).name + "00"
+        name = usd.role_config("a3", role).name + "00"
         t_us = np.round(t_onboard[written] * 1e6)
         write_usd_log(folder / "sd" / role / name, names, t_us, columns)
 
@@ -381,7 +379,7 @@ def synthetic_flight(
         "design_rows": rows,
         "masses": masses,
         "usd": {
-            role: {"t_wall_start": t_log_start, "files": [usd.role_config(role).name + "00"]}
+            role: {"t_wall_start": t_log_start, "files": [usd.role_config("a3", role).name + "00"]}
             for role in flying
         },
         "abort_reason": flight.abort_reason,

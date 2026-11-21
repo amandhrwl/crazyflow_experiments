@@ -23,7 +23,7 @@ from crazyflow_experiments.downwash.a1_convert import (  # noqa: E402
     window_stats,
 )
 from tests.downwash import a1_fakes  # noqa: E402
-from tests.load_cell import fakes  # noqa: E402
+from tests.downwash import sync_fakes as fakes  # noqa: E402
 
 if TYPE_CHECKING:
     from pathlib import Path

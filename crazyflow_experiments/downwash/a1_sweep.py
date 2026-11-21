@@ -1,6 +1,6 @@
 """Block A1: drive the motors of the victim on the load cell through fixed commands.
 
-The victim is rebooted and connected as in the load cell tests (`load_cell.radio.Victim`, not the
+The victim is rebooted and connected as in the load cell tests (`radio.Victim`, not the
 `Drone` class: no motion capture, no estimator reset, no spin-up at connect), its load cell
 calibration and sample rate are set, its card logs everything at 500 Hz (case S) and the radio
 streams the load cell and the motors at 100 Hz for the live screen and the limits. Each block is
@@ -43,26 +43,25 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from crazyflow_experiments.downwash import A1_CONFIG_PATH, A1_RESULTS_DIR, SD_CONFIG_DIR
+from crazyflow_experiments.downwash import A1_CONFIG_PATH, A1_RESULTS_DIR, usd
 from crazyflow_experiments.downwash.a1_stand import (
     BLOCKS,
     DSHOT_STOP,
     N_MOTORS,
-    RPM_INVALID,
     Step,
     ThrustPredictor,
     check_limits,
     crazyflow_rpm2thrust,
     load_config,
     plan,
-    rotor_thrust,
     schedule_report,
     thrust_cap,
     uniform,
     victim_mass,
 )
-from crazyflow_experiments.load_cell import usd
-from crazyflow_experiments.load_cell.radio import Victim
+from crazyflow_experiments.downwash.radio import Victim
+from crazyflow_experiments.downwash.thrust import rotor_thrust
+from crazyflow_experiments.downwash.usd import RPM_INVALID
 from crazyflow_experiments.utils.paths import REPO_ROOT, new_recording_path
 
 if TYPE_CHECKING:
@@ -72,7 +71,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("crazyflow_experiments.downwash.a1_sweep")  # Not __name__, __main__
 logging.getLogger("crazyflow_experiments").setLevel(logging.INFO)
 
-SD_CONFIG = SD_CONFIG_DIR / "config_a1.txt"
+SD_CONFIG = usd.config_path("a1", "victim")
 MOTOR_VARIABLES = ("motor.m1", "motor.m1_rpm", "motor.m2_rpm", "motor.m3_rpm", "motor.m4_rpm")
 ARMED, LOCKED, CRASHED = 0x0002, 0x0040, 0x0080  # Bits of supervisor.info
 LOOP_PERIOD = 0.05  # s between the checks of the limits

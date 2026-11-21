@@ -1,4 +1,7 @@
-"""A load cell test recording faked from known clocks, to check that the sync recovers them.
+"""Onboard clocks, card files and a load cell test recording faked from known clocks.
+
+The sync tests of block A1 and of the load cell test check that the sync recovers these clocks,
+the card tests read back the files `usd_file` writes.
 
 The timing follows the firmware: the card samples on every other pass of the 1 kHz stabilizer
 loop, which the IMU's own clock paces, right after the loop read the sensors. The radio log timer
@@ -70,14 +73,24 @@ VICTIM_CLOCK = Clock(rate=1.013, sd_offset=3.7e-3)
 SOURCE_CLOCK = Clock(rate=0.9995, sd_offset=-1.2e-3, sd_rate=85 / 84)
 
 
-def usd_file(variables: list[tuple[str, str]], t_us: NDArray, columns: list[NDArray]) -> bytes:
-    """A version 2 card log of one fixedFrequency event, CRC included."""
-    data = b"\xbc" + struct.pack("<HH", 2, 1)
+def usd_file(
+    variables: list[tuple[str, str]], t: NDArray, columns: list[NDArray], version: int = 2
+) -> bytes:
+    """A card log of one fixedFrequency event as the firmware writes it, CRC included.
+
+    Args:
+        variables: Name and `struct` type character of every variable.
+        t: Timestamps, in µs for version 2 and in ms for version 1.
+        columns: The values of every variable.
+        version: Format version of the file.
+    """
+    data = b"\xbc" + struct.pack("<HH", version, 1)
     data += struct.pack("<H", EVENT_ID) + b"fixedFrequency\0" + struct.pack("<H", len(variables))
     data += b"".join(f"{name}({kind})".encode() + b"\0" for name, kind in variables)
+    head = struct.Struct("<HI" if version == 1 else "<HQ")
     values = struct.Struct("<" + "".join(kind for _, kind in variables))
-    for i, t in enumerate(t_us):
-        data += struct.pack("<HQ", EVENT_ID, int(t)) + values.pack(*(c[i] for c in columns))
+    for i, stamp in enumerate(t):
+        data += head.pack(EVENT_ID, int(stamp)) + values.pack(*(c[i] for c in columns))
     return data + struct.pack("<I", zlib.crc32(data))
 
 

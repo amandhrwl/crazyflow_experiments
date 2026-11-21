@@ -22,6 +22,7 @@ import numpy as np
 
 from crazyflow_experiments.control.config import drone_params
 from crazyflow_experiments.downwash import A1_CONFIG_PATH
+from crazyflow_experiments.downwash.thrust import model_curve, rotor_rpm
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 N_MOTORS = 4
-RPM_INVALID = 65535  # motor.mX_rpm of a motor whose DShot telemetry did not answer
 DSHOT_STOP = 1504  # Commands below this become DShot 0, the motor stops (ratio >> 5 < 47)
 SUPPORTED_CASES = ("S", "R1")
 BLOCKS = ("all", "single", "bench")
@@ -100,31 +100,14 @@ def crazyflow_rpm2thrust(config: dict) -> NDArray:
     The config holds the coefficients the comparison was planned with; a crazyflow update that
     changes them has to be noticed rather than silently compared against.
     """
-    from crazyflow.dynamics import load_params  # JAX, only where the curve is needed
-
     model = config["victim"]["model"]
-    coef = np.asarray(load_params("first_principles", model)["rpm2thrust"], dtype=float)
-    coef = coef.reshape(-1)
+    coef = model_curve(model)
     if not np.allclose(coef, config["crazyflow"]["rpm2thrust"], rtol=1e-9, atol=0.0):
         raise ValueError(
             f"crazyflow's rpm2thrust of {model} is {coef.tolist()}, the config has "
             f"{config['crazyflow']['rpm2thrust']}; update [crazyflow] knowingly"
         )
     return coef
-
-
-def rotor_thrust(rpm: ArrayLike, coef: ArrayLike) -> NDArray:
-    """Thrust of one rotor in N at `rpm`, f = c0 + c1 rpm + c2 rpm^2."""
-    c0, c1, c2 = np.asarray(coef, dtype=float)
-    rpm = np.asarray(rpm, dtype=float)
-    return c0 + c1 * rpm + c2 * rpm**2
-
-
-def rotor_rpm(thrust: ArrayLike, coef: ArrayLike) -> NDArray:
-    """Rpm at which one rotor makes `thrust` in N, the positive root of the curve."""
-    c0, c1, c2 = np.asarray(coef, dtype=float)
-    thrust = np.asarray(thrust, dtype=float)
-    return (-c1 + np.sqrt(c1**2 - 4 * c2 * (c0 - thrust))) / (2 * c2)
 
 
 def victim_mass(config: dict, dry_run: bool = False) -> float:

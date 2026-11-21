@@ -42,7 +42,6 @@ import json
 import logging
 import math
 import pickle
-from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -54,8 +53,10 @@ from scipy.signal import butter, sosfiltfilt
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 
-from crazyflow_experiments.downwash import plots, usd
+from crazyflow_experiments.downwash import ROLES, plots, usd
 from crazyflow_experiments.downwash.design import SETTLED_EXT_MARGIN, gravity, model_params
+from crazyflow_experiments.downwash.sync import ClockFit, fit_clock
+from crazyflow_experiments.downwash.thrust import curve, rotor_thrust
 from crazyflow_experiments.downwash.timeline import segment_leg_times, victim_hover_point
 
 if TYPE_CHECKING:
@@ -70,7 +71,6 @@ logger = logging.getLogger(
 logger.setLevel(logging.INFO)
 
 GRID_FREQ = 500.0  # Hz, the sim's rate
-ROLES = ("victim", "source")
 DRONE_NAMES = ("lower", "upper")  # The sim's names of index 0 and 1
 QUAT_ORDER = "xyzw"
 PHASE_NAMES = ("hover", "ramp_up", "cruise", "ramp_down", "pause")
@@ -81,12 +81,6 @@ RPM_MAX_GAP = 5  # samples, shorter rpm dropouts are interpolated, longer ones f
 VEL_CUTOFF = 10.0  # Hz, zero-phase low-pass of the motion capture velocity and acceleration
 SYNC_CUTOFF = 20.0  # Hz, low-pass of the vertical accelerations compared over the hops
 LABEL_CUTOFF = 10.0  # Hz, low-pass of the force labels for the peak and the wake mask
-PRIOR_WINDOW = 2.0  # s, the clock offset lies this close to the one the logging start gives
-COARSE_BIN = 0.01  # s, histogram bin of the coarse clock offset
-# s of setpoint changes the coarse offset comes from: 1.3 % drift moves the offset 13 ms over it
-COARSE_SPAN = 1.0
-MATCH_WINDOW = 0.03  # s, an echo lies this close to its setpoint under the current clock map
-MIN_MATCHES = 20
 HOP_PAD = 0.5  # s around each hop compared with the IMU
 SYNC_GRID = 1000.0  # Hz, grid of the hop comparison
 MAX_LAG = 0.05  # s, lags searched in the hop comparison
@@ -133,27 +127,6 @@ class Mocap:
     t: NDArray
     pos: NDArray
     quat: NDArray
-
-
-@dataclass
-class ClockFit:
-    """Map of an onboard clock onto PC time, `t_pc = offset + (1 + drift) t_onboard`.
-
-    Attributes:
-        offset: PC time at onboard time 0 in s.
-        drift: Relative rate error of the onboard clock.
-        residual_std: Standard deviation of the matched echoes about the fit in s.
-        n_matches: Number of matched echoes in the fit.
-    """
-
-    offset: float
-    drift: float
-    residual_std: float
-    n_matches: int
-
-    def to_pc(self, t_onboard: NDArray) -> NDArray:
-        """PC time of onboard times."""
-        return self.offset + (1.0 + self.drift) * np.asarray(t_onboard, dtype=float)
 
 
 def read_onboard(path: Path) -> OnboardLog:
@@ -261,113 +234,6 @@ def fill_dropouts(x: NDArray, max_run: int) -> NDArray:
     return x
 
 
-def change_events(t: NDArray, values: NDArray) -> tuple[NDArray, NDArray]:
-    """Times and new values (N, k) where any column of `values` changes."""
-    values = np.asarray(values).reshape(len(t), -1)
-    index = np.nonzero(np.any(values[1:] != values[:-1], axis=1))[0] + 1
-    return np.asarray(t)[index], values[index]
-
-
-def fit_clock(
-    pc_t: NDArray, pc_mm: NDArray, onboard_t: NDArray, onboard_mm: NDArray, prior_offset: float
-) -> ClockFit:
-    """Fit the onboard clock to PC time from the setpoint echo.
-
-    Every change of the onboard setpoint is a setpoint the PC sent with the same value in mm. The
-    onboard clocks run about 1.3 % slow against the PC (F1, 18 Nov: 13400 ppm on cf3, 12900 ppm on
-    cf4), so a single offset holds for about two seconds only. The coarse offset is therefore the
-    densest bin of the offsets between equal values near `prior_offset` over the first
-    `COARSE_SPAN` of onboard changes. Then the matched span doubles each round until it covers the
-    log: each onboard change in it is matched to the nearest sent change of its value under the
-    current map, and offset and drift are refitted by least squares with outliers beyond five
-    robust standard deviations dropped. Each round extrapolates the last fit to twice its span,
-    well inside `MATCH_WINDOW`, so the victim, whose setpoint changes only at the takeoff and the
-    sync hops, is matched across its whole flight as well.
-
-    Args:
-        pc_t: Send times of the setpoints in PC time (N,).
-        pc_mm: Sent setpoints in mm (N, k), the axes the drone echoes.
-        onboard_t: Onboard times of the logged setpoint (M,).
-        onboard_mm: Logged setpoint in mm (M, k).
-        prior_offset: Rough offset, PC time at onboard time 0, e.g. from the logging start.
-
-    Returns:
-        The fitted map.
-    """
-    pc_t, pc_mm = change_events(pc_t, pc_mm)
-    on_t, on_mm = change_events(onboard_t, onboard_mm)
-    if len(on_t) == 0:
-        raise RuntimeError("The logged setpoint never changes")
-    on_values = list(map(tuple, on_mm))
-    sent = defaultdict(list)
-    for t, value in zip(pc_t, map(tuple, pc_mm)):
-        sent[value].append(t)
-    sent = {value: np.array(times) for value, times in sent.items()}
-    early = on_t <= on_t[0] + COARSE_SPAN
-    candidates = [
-        times - t
-        for t, value in zip(on_t[early], [v for v, e in zip(on_values, early) if e])
-        if (times := sent.get(value)) is not None
-    ]
-    offsets = np.concatenate(candidates) if candidates else np.array([])
-    offsets = offsets[np.abs(offsets - prior_offset) < PRIOR_WINDOW]
-    if len(offsets) < MIN_MATCHES:
-        raise RuntimeError(f"Only {len(offsets)} setpoint echoes near the logging start")
-    bins, counts = np.unique(np.round((offsets - prior_offset) / COARSE_BIN), return_counts=True)
-    offset, slope = prior_offset + bins[np.argmax(counts)] * COARSE_BIN, 1.0
-    span = COARSE_SPAN
-    while True:
-        in_span = on_t <= on_t[0] + span
-        pairs = _match_echoes(on_t[in_span], on_values, sent, offset, slope)
-        if len(pairs) < MIN_MATCHES:
-            raise RuntimeError(f"Only {len(pairs)} setpoint echoes matched")
-        offset, slope, residual = _robust_line(*pairs.T)
-        if in_span.all():
-            break
-        span *= 2
-    return ClockFit(
-        offset=offset,
-        drift=slope - 1,
-        residual_std=float(np.std(residual)),
-        n_matches=len(residual),
-    )
-
-
-def _match_echoes(
-    on_t: NDArray, on_values: Sequence[tuple], sent: Mapping, offset: float, slope: float
-) -> NDArray:
-    """Pairs (onboard time, send time) of the onboard changes with a sent twin under the map."""
-    pairs = []
-    for t, value in zip(on_t, on_values):
-        if (times := sent.get(value)) is None:
-            continue
-        predicted = offset + slope * t
-        nearest = times[np.argmin(np.abs(times - predicted))]
-        if abs(nearest - predicted) < MATCH_WINDOW:
-            pairs.append((t, nearest))
-    return np.array(pairs).reshape(-1, 2)
-
-
-def _robust_line(x: NDArray, y: NDArray) -> tuple[float, float, NDArray]:
-    """Least-squares line `y = offset + slope x` without outliers beyond five robust std.
-
-    Returns:
-        Offset, slope and the residuals of the points kept.
-    """
-    x0, y0 = x.mean(), y.mean()
-    keep = np.ones(len(x), dtype=bool)
-    for _ in range(10):
-        slope, intercept = np.polyfit(x[keep] - x0, y[keep] - y0, 1)
-        residual = (y - y0) - (intercept + slope * (x - x0))
-        center = np.median(residual[keep])
-        scale = max(1.4826 * np.median(np.abs(residual[keep] - center)), 1e-4)
-        new_keep = np.abs(residual - center) < 5 * scale
-        if np.array_equal(new_keep, keep):
-            break
-        keep = new_keep
-    return float(y0 + intercept - slope * x0), float(slope), residual[keep]
-
-
 def lag(t: NDArray, reference: NDArray, t_other: NDArray, other: NDArray, max_lag: float) -> float:
     """Lag `d` in s with which `other(t - d)` best matches `reference(t)`.
 
@@ -422,19 +288,6 @@ def setpoint_echo(records: Sequence[Mapping], role: str, log: OnboardLog) -> tup
     return pc_t, pc_mm, log.t, onboard_mm
 
 
-def rpm2thrust(params: Mapping, thrust_scale: float) -> NDArray:
-    """Thrust curve of one drone: crazyflow's rpm2thrust of the model times its calibration.
-
-    Args:
-        params: Crazyflow parameters of the drone model.
-        thrust_scale: The drone's `thrust_scale` from the config.
-
-    Returns:
-        The coefficients (3,) of `f = c0 + c1 rpm + c2 rpm^2` in N per rotor.
-    """
-    return thrust_scale * np.asarray(params["rpm2thrust"], dtype=float).reshape(-1)
-
-
 def drone_signals(
     t_grid: NDArray,
     mocap: Mocap | None,
@@ -446,7 +299,7 @@ def drone_signals(
 ) -> dict[str, NDArray]:
     """Every signal of one drone on the flight grid, NaN for a drone that did not fly.
 
-    The rotor thrust is the measured rpm on the drone's calibrated curve, see `rpm2thrust`.
+    The rotor thrust is the measured rpm on the drone's calibrated curve, see `thrust.curve`.
     """
     n = len(t_grid)
     nan3, nan4 = np.full((n, 3), np.nan), np.full((n, 4), np.nan)
@@ -498,10 +351,8 @@ def drone_signals(
         }
         if "ctrlMel.cmd_thrust" in log.values:
             signals["cmd_thrust"] = onboard(["ctrlMel.cmd_thrust"])[:, 0]
-    coef = rpm2thrust(params, thrust_scale)
-    signals["motor_thrust"] = (
-        coef[0] + coef[1] * signals["rotor_vel"] + coef[2] * signals["rotor_vel"] ** 2
-    )
+    coef = curve(params["rpm2thrust"], thrust_scale)
+    signals["motor_thrust"] = rotor_thrust(signals["rotor_vel"], coef)
     return signals
 
 
@@ -901,8 +752,8 @@ def sim_params_arrays(data: FlightData, cfg: Mapping) -> dict[str, NDArray]:
         "drone/mass_upper": np.array([masses["source"]]),
         "drone/L": np.array([float(np.asarray(params["L"]))]),
         "drone/J": np.asarray(params["J"], dtype=float),
-        "drone/rpm2thrust": rpm2thrust(params, scales["victim"]).reshape(1, -1),
-        "drone/rpm2thrust_upper": rpm2thrust(params, scales["source"]).reshape(1, -1),
+        "drone/rpm2thrust": curve(params["rpm2thrust"], scales["victim"]).reshape(1, -1),
+        "drone/rpm2thrust_upper": curve(params["rpm2thrust"], scales["source"]).reshape(1, -1),
         "drone/rpm2torque": np.asarray(params["rpm2torque"], dtype=float).reshape(1, -1),
         "drone/mixing_matrix": np.asarray(params["mixing_matrix"], dtype=float),
         "drone/drag_matrix": np.asarray(params["drag_matrix"], dtype=float),

@@ -8,7 +8,7 @@ folder of card files), then run
 
 The events are stamped with the PC clock, so even case S, where the card holds both the load cell
 and the rpm, maps the card onto PC time: the tick through the arrival times of the radio packets
-and the card timer through the load cell reading it logs both ways (`load_cell/sync.py`, which
+and the card timer through the load cell reading it logs both ways (`sync.py`, which
 also finds the 85/84 card timer of firmware before bitcraze #1684). Case R1 without a card uses
 the radio blocks alone, on the tick.
 
@@ -32,11 +32,15 @@ from typing import TYPE_CHECKING
 import matplotlib.pyplot as plt
 import numpy as np
 
-from crazyflow_experiments.downwash import A1_PLOTS_DIR, A1_RESULTS_DIR
-from crazyflow_experiments.downwash.a1_stand import N_MOTORS, RPM_INVALID
-from crazyflow_experiments.load_cell import usd
-from crazyflow_experiments.load_cell.convert import sd_file, sync_drone
-from crazyflow_experiments.load_cell.sync import fit_radio_clock, unwrap_ticks
+from crazyflow_experiments.downwash import A1_PLOTS_DIR, A1_RESULTS_DIR, usd
+from crazyflow_experiments.downwash.a1_stand import N_MOTORS
+from crazyflow_experiments.downwash.sync import (
+    LOAD_CELL_SYNC,
+    fit_radio_clock,
+    sync_drone,
+    unwrap_ticks,
+)
+from crazyflow_experiments.downwash.usd import RPM_INVALID, sd_file
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -346,8 +350,8 @@ def convert(folder: Path, calibration: Path | None = None) -> dict:
         raise FileNotFoundError(f"No card file in {card_dir}, copy it in (--collect)")
     if has_card:
         sd = usd.decode(sd_file(folder, "victim", meta))
-        sd_period = 1 / usd.read_config(Path(__file__).parent / "sd" / "config_a1.txt").frequency
-        sync = None if "loadcell.rawWeight" in sd else R1_SYNC
+        sd_period = 1 / usd.role_config("a1", "victim").frequency
+        sync = LOAD_CELL_SYNC if "loadcell.rawWeight" in sd else R1_SYNC
         clock, report["clock"] = sync_drone(radio, "victim", sd, sd_period, sync=sync)
         t_card = clock.pc_from_sd(sd["t_us"]) - t_ref
         signals, weight, m1 = card_signals(sd, t_card, a, b)

@@ -14,7 +14,7 @@ every dependency, so each experiment domain has its own environment, defined in 
 | Environment | Experiments |
 |---|---|
 | `crazyflow` | `benchmarks/` |
-| `sim2real` | `sim2real/`, `downwash/`, `load_cell/` |
+| `sim2real` | `sim2real/`, `downwash/` |
 | `sysid` | `sysid/` |
 | `racing` | `racing/` |
 | `mppi` | `mppi_obstacles/` |
@@ -89,30 +89,34 @@ docstring, so only the cases that deviate are listed here.
 - `throw/collect.py` replays the recorded throws through the training checkpoints and writes
   success curves for evaluating recovery rate.
 - `learn2fly/export.py` writes the trained actor as a C header for the onboard firmware.
-- `downwash/` flies two Crazyflies at once: the victim hovers while the source passes over it.
-  `design.py` writes the leg table of block A3, `deploy_a3.py --flight <k>` flies one flight of it,
+- `downwash/` holds the blocks of the downwash experiment on one shared layer: `usd.py` (card
+  configs `sd/config_<block>_<role>.txt`, logging, `collect`, `bench` and the decoder), `sync.py`
+  (onboard clocks onto PC time), `radio.py` (radio logs and the victim's link on the load cell) and
+  `thrust.py` (rotor thrust from the rpm, crazyflow's rpm2thrust times the drone's `thrust_scale`).
+  `usd.py write-config <card> --block <a1|a3|lc> --role <role>` puts a card config on a card.
+- Block A3 of `downwash/` flies two Crazyflies at once: the victim hovers while the source passes
+  over it. `design.py` writes the leg table, `deploy_a3.py --flight <k>` flies one flight of it,
   both drones served by the one loop of `downwash/pair.py` from the joint takeoff to the joint
   landing, and `convert_a3.py <flight folder> --bag <bag>` cuts the legs into the thesis format.
-  Both drones log onboard to micro-SD (`downwash/usd.py`, card configs in `downwash/sd/`); the
-  conversion maps each card's clock onto PC time from the `ctrltarget` echo of the sent setpoints.
-  It also needs the rosbag of `/tf` recorded during the flight. `--dry-run` plans a flight without
-  connecting anything.
-- `load_cell/` tests the load cell under the victim of the downwash experiments: the victim sits
-  on it with its motors off and reads it with the `loadcell` deck driver of the firmware's sysid
-  build, the source hovers beside, over and beside it again. `deploy.py [--dry-run] [--spin]` flies
-  it, with `--spin` while the victim runs its motors on the load cell,
-  both drones log to their SD cards (`usd.py write-config` puts `sd/config_<role>.txt` on a card)
-  and the victim streams the load cell over the radio at 100 Hz. Firmware with the
-  `usd.fileDate`/`usd.fileTime` parameters of the patched `usddeck.c` in `../crazyflie-firmware`
-  names each card file after its recording, `<role>_<timestamp>_SD` for `test_<timestamp>`, and
-  `usd.py collect <card>` copies the files into `<recording>/sd/<role>/`. `convert.py <recording>`
-  maps every onboard clock onto PC time (`sync.py`): the tick through the arrival times of the
+  Both drones log onboard to micro-SD; the conversion maps each card's clock onto PC time from the
+  `ctrltarget` echo of the sent setpoints (`sync.fit_clock`). It also needs the rosbag of `/tf`
+  recorded during the flight. `--dry-run` plans a flight without connecting anything.
+- The load cell setup test of `downwash/` (`lc_test_*`) tests the load cell under the victim: the
+  victim sits on it with its motors off and reads it with the `loadcell` deck driver of the
+  firmware's sysid build, the source hovers beside, over and beside it again.
+  `lc_test_deploy.py [--dry-run] [--spin]` flies it, with `--spin` while the victim runs its motors
+  on the load cell, both drones log to their SD cards and the victim streams the load cell over the
+  radio at 100 Hz. Firmware with the `usd.fileDate`/`usd.fileTime` parameters of the patched
+  `usddeck.c` in `../crazyflie-firmware` names each card file after its recording,
+  `<role>_<timestamp>_SD` for `test_<timestamp>`, and `usd.py collect <card> --block lc` copies
+  the files into `results/load_cell/<recording>/sd/<role>/`. `lc_test_convert.py <recording>` maps
+  every onboard clock onto PC time (`sync.sync_drone`): the tick through the arrival times of the
   radio packets, the SD timer through a variable both log. Firmware older than bitcraze
   crazyflie-firmware#1684 (the copy in `submodules/` among it) runs the SD timer 85/84 slow, which
-  the sync detects and corrects.
-  Only the source needs an estimator, the victim only its rigid body.
-- Block A1 of `downwash/` checks crazyflow's rpm2thrust with the victim on the load cell, built on
-  `load_cell/` (its `radio.Victim`, card helpers and `sync.py`). `a1_probe.py` runs the bench
+  the sync detects and corrects. Only the source needs an estimator, the victim only its rigid
+  body.
+- Block A1 of `downwash/` checks crazyflow's rpm2thrust with the victim on the load cell, on the
+  victim link and the radio sync of the load cell test. `a1_probe.py` runs the bench
   checks, `a1_sweep.py --block all|single|bench [--dry-run]` drives the motors through
   `motorPowerSet` commands while the card logs the load cell and the rpm, `a1_convert.py <block>
   [--collect <card>]` maps the card onto PC time and cuts the steady windows, and `a1_fit.py
@@ -155,8 +159,7 @@ crazyflow_experiments/
 ├── utils/           # Shared paths, ROS helpers and position errors
 ├── benchmarks/      # Simulator speed benchmarking
 ├── sim2real/        # Sim-to-real validation pipeline
-├── downwash/        # Two-drone downwash flyover passes with onboard SD logging
-├── load_cell/       # Load cell setup test: the source hovers over the victim on the load cell
+├── downwash/        # Downwash blocks: flyover passes (A3), rpm2thrust (A1), load cell test
 ├── sysid/           # System identification
 ├── figure8/         # Figure-8 tracking policies (BPTT, PPO)
 ├── learn2fly/       # Reach-position policies (TD3)
@@ -240,7 +243,7 @@ Evaluation scripts and tests that report such an error call these instead of com
 | `crazyflow_experiments/vision/config.toml` | Drone and manual control interface for camera data collection |
 | `crazyflow_experiments/downwash/config.toml` | Both drones of the downwash passes with their weighed masses and `thrust_scale` calibrations of crazyflow's rpm2thrust, the pass profile of block A3, sync hop, takeoff and safety limits |
 | `crazyflow_experiments/hover/config.toml` | Crazyflie of the hover flights with its own weighed `mass`, which the controller flies with instead of the model's, and its `thrust_scale` |
-| `crazyflow_experiments/load_cell/config.toml` | Victim on the load cell and its calibration and sample rate, the source, the holds beside and over the victim and the safety limits |
+| `crazyflow_experiments/downwash/lc_test_config.toml` | Load cell setup test: victim on the load cell and its calibration and sample rate, the source, the holds beside and over the victim and the safety limits |
 | `crazyflow_experiments/downwash/a1_config.toml` | Block A1: the victim on the load cell (id, weighed mass, mount, clamped), the load cell calibration, force sign and sample rate, the sweep levels and holds, the thrust limits and the hover references of crazyflow's rpm2thrust |
 | `crazyflow_experiments/sysid/config.toml` | Drone as in the sim2real config, controller, origin and trajectory set of the identification flight |
 | `crazyflow_experiments/sysid/config_drones.toml` | Mass, pwm range, thrust curve and thrust limits of every drone model, one table per model, read by every experiment through `control.config.drone_params` |

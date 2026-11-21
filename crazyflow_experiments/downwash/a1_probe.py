@@ -28,11 +28,11 @@ from pathlib import Path
 
 import numpy as np
 
-from crazyflow_experiments.downwash import A1_CONFIG_PATH, A1_RESULTS_DIR
-from crazyflow_experiments.downwash.a1_stand import N_MOTORS, RPM_INVALID, load_config
+from crazyflow_experiments.downwash import A1_CONFIG_PATH, A1_RESULTS_DIR, usd
+from crazyflow_experiments.downwash.a1_stand import N_MOTORS, load_config
 from crazyflow_experiments.downwash.a1_sweep import MOTOR_VARIABLES, SD_CONFIG
-from crazyflow_experiments.load_cell import usd
-from crazyflow_experiments.load_cell.radio import Victim
+from crazyflow_experiments.downwash.radio import Victim
+from crazyflow_experiments.downwash.usd import RPM_INVALID
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("crazyflow_experiments.downwash.a1_probe")  # Not __name__, __main__
@@ -182,7 +182,7 @@ def decode_check(path: Path) -> list[str]:
     raw = sd.get("loadcell.rawWeight", np.empty(0))
     lines = [
         f"{Path(path).name}: {crc}, {len(t)} records over {t[-1] - t[0]:.1f} s",
-        "variables " + ("as config_a1.txt" if variables == list(expected) else f"{variables}"),
+        "variables " + (f"as {SD_CONFIG.name}" if variables == list(expected) else f"{variables}"),
         f"record spacing {spacing:.0f} µs: {timer}",
         f"{len(gaps)} card gaps over 10 ms, longest {gaps.max() * 1e3 if len(gaps) else 0:.0f} ms",
     ]

@@ -12,16 +12,17 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import toml  # noqa: E402
 
-from crazyflow_experiments.load_cell import CONFIG_PATH, deploy  # noqa: E402
-from crazyflow_experiments.load_cell.deploy import (  # noqa: E402
+from crazyflow_experiments.downwash import LC_CONFIG_PATH  # noqa: E402
+from crazyflow_experiments.downwash import lc_test_deploy as deploy  # noqa: E402
+from crazyflow_experiments.downwash.lc_test_deploy import (  # noqa: E402
     plan_flight,
     settle,
     spin_pwm,
     violation,
 )
-from crazyflow_experiments.load_cell.radio import ARMED, CAN_FLY, Victim  # noqa: E402
+from crazyflow_experiments.downwash.radio import ARMED, CAN_FLY, Victim  # noqa: E402
 
-CONFIG = toml.load(CONFIG_PATH)
+CONFIG = toml.load(LC_CONFIG_PATH)
 VICTIM = np.array([0.2, 0.1, 0.5])
 
 
@@ -173,7 +174,7 @@ def test_spinning_victim_arms_feeds_the_watchdog_and_disarms(monkeypatch: pytest
     switches off the motors-not-responding check, and then zeroes the commands: under the override
     a disarm alone does not stop the motors (motors.c routes motorsStop through the override).
     """
-    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.STATUS_PERIOD_MS", 50)
+    monkeypatch.setattr("crazyflow_experiments.downwash.radio.STATUS_PERIOD_MS", 50)
     link = FakeLink(arms=True)
     victim = fake_victim(link)
     victim.spin(17000)
@@ -189,7 +190,7 @@ def test_spinning_victim_arms_feeds_the_watchdog_and_disarms(monkeypatch: pytest
 
 def test_per_motor_commands_use_enable_1(monkeypatch: pytest.MonkeyPatch):
     """Four different commands go to m1 to m4, written before the override is switched on."""
-    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.STATUS_PERIOD_MS", 50)
+    monkeypatch.setattr("crazyflow_experiments.downwash.radio.STATUS_PERIOD_MS", 50)
     link = FakeLink(arms=True)
     victim = fake_victim(link)
     victim.spin((20000, 7000, 7000, 7000))
@@ -210,8 +211,8 @@ def test_a_victim_that_cannot_arm_is_not_asked_to():
 
 def test_a_victim_that_does_not_arm_never_gets_a_motor_command(monkeypatch: pytest.MonkeyPatch):
     """A failed arming, e.g. a motor out of its idle rpm range, stops before the motors are set."""
-    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.ARM_TIMEOUT", 0.3)
-    monkeypatch.setattr("crazyflow_experiments.load_cell.radio.STATUS_PERIOD_MS", 50)
+    monkeypatch.setattr("crazyflow_experiments.downwash.radio.ARM_TIMEOUT", 0.3)
+    monkeypatch.setattr("crazyflow_experiments.downwash.radio.STATUS_PERIOD_MS", 50)
     link = FakeLink(arms=False)
     victim = fake_victim(link)
     with pytest.raises(RuntimeError, match="did not arm"):

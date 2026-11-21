@@ -516,16 +516,17 @@ def deploy_env(
     done.set()
     monkeypatch.setattr(pair, "connect_pair", lambda cfg, only_source: (victim, source))
     monkeypatch.setattr(pair, "calibrate_async", lambda drone_id, delay: done)
-    monkeypatch.setattr(usd, "capture_console", lambda drone: FakeConsole(f"{drone.name}_00"))
-    monkeypatch.setattr(usd, "check_variables", lambda drone, names: None)
+    names = {id(drone.cf): drone.name for drone in (victim, source)}
+    monkeypatch.setattr(usd, "ConsoleCapture", lambda cf: FakeConsole(f"{names[id(cf)]}_00"))
+    monkeypatch.setattr(usd, "check_variables", lambda cf, name, variables: None)
     monkeypatch.setattr(usd, "read_once", fake_read_once)
     for action in ("start", "stop"):
 
-        def log(drone: FakeDrone, action: str = action) -> float:
-            sd_calls.append((action, drone.name))
+        def log(cf: object, name: str, action: str = action) -> float:
+            sd_calls.append((action, name))
             return clock.time()
 
-        monkeypatch.setattr(usd, f"{action}_usd_logging", log)
+        monkeypatch.setattr(usd, f"{action}_logging", log)
     monkeypatch.setattr(deploy_a3, "A3_RESULTS_DIR", tmp_path)
     monkeypatch.setattr(deploy_a3, "git_info", lambda: {"hash": "0" * 40, "dirty": False})
     flight_cfg = copy.deepcopy(cfg)

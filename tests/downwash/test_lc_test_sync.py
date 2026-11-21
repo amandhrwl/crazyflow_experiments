@@ -12,13 +12,14 @@ from typing import TYPE_CHECKING  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-from crazyflow_experiments.load_cell import convert, usd  # noqa: E402
-from crazyflow_experiments.load_cell.sync import (  # noqa: E402
+from crazyflow_experiments.downwash import lc_test_convert as convert  # noqa: E402
+from crazyflow_experiments.downwash import usd  # noqa: E402
+from crazyflow_experiments.downwash.sync import (  # noqa: E402
     TICK_WRAP,
     fit_radio_clock,
     unwrap_ticks,
 )
-from tests.load_cell import fakes  # noqa: E402
+from tests.downwash import sync_fakes as fakes  # noqa: E402
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,7 +30,7 @@ SD_TOLERANCE = 0.5e-3  # s, card records against their true PC time
 @pytest.fixture
 def recording(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A faked recording, converted, with the quicklook kept out of the repository."""
-    monkeypatch.setattr(convert, "QUICKLOOK_DIR", tmp_path / "plots")
+    monkeypatch.setattr(convert, "LC_PLOTS_DIR", tmp_path / "plots")
     folder = tmp_path / "test_fake"
     folder.mkdir()
     fakes.write_recording(folder)
@@ -81,7 +82,7 @@ def test_force_is_zeroed_on_still_air_and_shows_the_hold_over(recording: Path):
 
 def test_a_calibration_file_replaces_the_flown_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A test flown with an outdated calibration converts with the file's a and b instead."""
-    monkeypatch.setattr(convert, "QUICKLOOK_DIR", tmp_path / "plots")
+    monkeypatch.setattr(convert, "LC_PLOTS_DIR", tmp_path / "plots")
     folder = tmp_path / "test_fake"
     folder.mkdir()
     fakes.write_recording(folder)
@@ -110,7 +111,7 @@ def test_radio_clock_fit_runs_through_a_tick_wrap():
 
 def test_a_card_from_another_flight_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A card record whose values never meet the radio's fails the sync instead of misaligning."""
-    monkeypatch.setattr(convert, "QUICKLOOK_DIR", tmp_path / "plots")
+    monkeypatch.setattr(convert, "LC_PLOTS_DIR", tmp_path / "plots")
     for name, seed in (("this", 0), ("other", 1)):
         (tmp_path / name).mkdir()
         fakes.write_recording(tmp_path / name, seed=seed)

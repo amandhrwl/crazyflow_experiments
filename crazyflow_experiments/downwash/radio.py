@@ -1,10 +1,10 @@
-"""Radio side of the load cell test: log packets with their PC arrival time, and the victim's link.
+"""Radio side of the load cell blocks: log packets with their PC arrival time, the victim's link.
 
 The victim does not fly, so it is not a `deploy.crazyflie.Drone` with an estimator.
 `Victim` reboots it like a `Drone`, sets the load cell calibration and sample rate and streams the
 load cell over the radio. For the spinning test it arms the victim and runs its motors at a fixed
-command on the load cell (`Victim.spin`), block A1 of the downwash experiment at a sequence of
-commands (`Victim.set_motors`).
+command on the load cell (`Victim.spin`), block A1 at a sequence of commands
+(`Victim.set_motors`).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from cflib.crazyflie.log import LogConfig
 from cflib.utils.power_switch import PowerSwitch
 
 from crazyflow_experiments.deploy import crazyflie as deploy_crazyflie
-from crazyflow_experiments.load_cell.usd import ConsoleCapture, check_variables, set_param
+from crazyflow_experiments.downwash.usd import ConsoleCapture, check_variables, set_param
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

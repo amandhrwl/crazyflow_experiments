@@ -3,14 +3,16 @@
 The victim stays on the load cell with its motors off and streams the load cell over the radio. The
 script records still air first, then the source takes off from where it stands, holds beside the
 victim, moves over it, holds there, moves back, holds and lands where it took off, and still air is
-recorded again. Both cards log throughout. See README.md for the terminals to start first.
+recorded again. Both cards log throughout. See the load cell setup test in README.md for the
+terminals to start first.
 
 With `--spin` the victim runs its motors on the load cell at a fixed command (`[spin]` in the
 config) from after the still air until the source has landed, first alone, so the load cell
 measures its thrust, then under the source's wake, as a flying victim would meet it.
 
 Run with
-    pixi run -e sim2real python crazyflow_experiments/load_cell/deploy.py [--dry-run] [--spin]
+    pixi run -e sim2real python crazyflow_experiments/downwash/lc_test_deploy.py \
+        [--dry-run] [--spin]
 """
 
 from __future__ import annotations
@@ -44,8 +46,8 @@ from crazyflow_experiments.control.state_controller import StateController
 from crazyflow_experiments.control.trajectories import CompositeTrajectory
 from crazyflow_experiments.deploy.experiment import connect
 from crazyflow_experiments.deploy.takeoff import takeoff
-from crazyflow_experiments.load_cell import CONFIG_PATH, RECORDINGS_DIR, usd
-from crazyflow_experiments.load_cell.radio import RadioLog, Victim
+from crazyflow_experiments.downwash import LC_CONFIG_PATH, LC_RESULTS_DIR, usd
+from crazyflow_experiments.downwash.radio import RadioLog, Victim
 from crazyflow_experiments.utils.paths import new_recording_path
 
 if TYPE_CHECKING:
@@ -57,7 +59,7 @@ if TYPE_CHECKING:
     from crazyflow_experiments.deploy.crazyflie import Drone
 
 logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger("crazyflow_experiments.load_cell.deploy")  # Not __name__, the __main__
+logger = logging.getLogger("crazyflow_experiments.downwash.lc_test_deploy")  # Not __name__
 logging.getLogger("crazyflow_experiments").setLevel(logging.INFO)
 
 # Streamed by the source at 100 Hz: its accelerometer is also on its card and syncs the two (see
@@ -312,7 +314,7 @@ def main(dry_run: bool = False, spin: bool = False):
         dry_run: Only plan and check the flight, connect to no drone.
         spin: Run the victim's motors on the load cell while the source flies.
     """
-    config = toml.load(CONFIG_PATH)
+    config = toml.load(LC_CONFIG_PATH)
     flight = config["flight"]
     if not rclpy.ok():
         rclpy.init()
@@ -335,14 +337,14 @@ def main(dry_run: bool = False, spin: bool = False):
     victim = Victim(
         victim_config["id"], victim_config["channel"], victim_config["radio"], config["load_cell"]
     )
-    folder = new_recording_path(RECORDINGS_DIR, "test", suffix="")
+    folder = new_recording_path(LC_RESULTS_DIR, "test", suffix="")
     recorded = datetime.strptime(folder.name, "test_%Y-%m-%d_%H-%M-%S")  # Names the card files
     folder.mkdir()
     meta = {"config": config, "victim_pos": plan.victim, "source_start": plan.source_start}
     meta |= {"aside": plan.aside, "over": plan.over, "phases": [], "abort": None, "sd": {}}
     phases, records, source_radio = meta["phases"], [], None
     try:
-        usd.check_variables(victim.cf, victim.name, usd.role_config("victim").variables)
+        usd.check_variables(victim.cf, victim.name, usd.role_config("lc", "victim").variables)
         meta["sd"]["victim"] = {"start": usd.start_logging(victim.cf, victim.name, recorded)}
         t0 = time.time()
         time.sleep(flight["baseline_time"])
@@ -379,7 +381,7 @@ def main(dry_run: bool = False, spin: bool = False):
 
         previous_handler = signal.signal(signal.SIGINT, land_on_interrupt)
         try:
-            usd.check_variables(drone.cf, drone.name, usd.role_config("source").variables)
+            usd.check_variables(drone.cf, drone.name, usd.role_config("lc", "source").variables)
             meta["sd"]["source"] = {"start": usd.start_logging(drone.cf, drone.name, recorded)}
             logger.info(f"Source battery {source_radio.latest('pm.vbat'):.2f} V")
             t0 = time.time()
