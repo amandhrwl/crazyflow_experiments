@@ -111,6 +111,17 @@ docstring, so only the cases that deviate are listed here.
   crazyflie-firmware#1684 (the copy in `submodules/` among it) runs the SD timer 85/84 slow, which
   the sync detects and corrects.
   Only the source needs an estimator, the victim only its rigid body.
+- Block A1 of `downwash/` checks crazyflow's rpm2thrust with the victim on the load cell, built on
+  `load_cell/` (its `radio.Victim`, card helpers and `sync.py`). `a1_probe.py` runs the bench
+  checks, `a1_sweep.py --block all|single|bench [--dry-run]` drives the motors through
+  `motorPowerSet` commands while the card logs the load cell and the rpm, `a1_convert.py <block>
+  [--collect <card>]` maps the card onto PC time and cuts the steady windows, and `a1_fit.py
+  <blocks>` fits the curve and the `thrust_scale` and writes `results/downwash/a1/rpm2thrust.toml`.
+  The firmware's `motorPowerSet` override also bypasses `motorsStop`, so a disarm or the
+  supervisor's watchdogs do not stop overridden motors; `Victim.stop_spin` disarms, then zeroes
+  the commands. The victim is clamped to the load cell, so the sweep goes up to twice its weight,
+  bounded by the cell's rating.
+  `results/downwash/a1/NOTES.md` lists where the code departs from the A1 spec and why.
 
 **Real drone deployment** requires launching in separate terminals first:
 ```bash
@@ -230,6 +241,7 @@ Evaluation scripts and tests that report such an error call these instead of com
 | `crazyflow_experiments/downwash/config.toml` | Both drones of the downwash passes with their weighed masses and `thrust_scale` calibrations of crazyflow's rpm2thrust, the pass profile of block A3, sync hop, takeoff and safety limits |
 | `crazyflow_experiments/hover/config.toml` | Crazyflie of the hover flights with its own weighed `mass`, which the controller flies with instead of the model's, and its `thrust_scale` |
 | `crazyflow_experiments/load_cell/config.toml` | Victim on the load cell and its calibration and sample rate, the source, the holds beside and over the victim and the safety limits |
+| `crazyflow_experiments/downwash/a1_config.toml` | Block A1: the victim on the load cell (id, weighed mass, mount, clamped), the load cell calibration, force sign and sample rate, the sweep levels and holds, the thrust limits and the hover references of crazyflow's rpm2thrust |
 | `crazyflow_experiments/sysid/config.toml` | Drone as in the sim2real config, controller, origin and trajectory set of the identification flight |
 | `crazyflow_experiments/sysid/config_drones.toml` | Mass, pwm range, thrust curve and thrust limits of every drone model, one table per model, read by every experiment through `control.config.drone_params` |
 | `crazyflow_experiments/sysid/config_trajectories.toml` | The `[trajectory_sets]` of the identification flights |

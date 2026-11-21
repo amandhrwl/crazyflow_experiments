@@ -3,7 +3,8 @@
 The victim does not fly, so it is not a `deploy.crazyflie.Drone` with an estimator.
 `Victim` reboots it like a `Drone`, sets the load cell calibration and sample rate and streams the
 load cell over the radio. For the spinning test it arms the victim and runs its motors at a fixed
-command on the load cell (`Victim.spin`).
+command on the load cell (`Victim.spin`), block A1 of the downwash experiment at a sequence of
+commands (`Victim.set_motors`).
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ from crazyflow_experiments.deploy import crazyflie as deploy_crazyflie
 from crazyflow_experiments.load_cell.usd import ConsoleCapture, check_variables, set_param
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
@@ -34,7 +37,7 @@ LOAD_CELL_VARIABLES = ("loadcell.rawWeight", "loadcell.weight")
 # Sample rate of the load cell, the battery and the supervisor's state
 STATUS_VARIABLES = ("loadcell.rate", "pm.vbat", "supervisor.info")
 STATUS_PERIOD_MS = 500
-ARMED, CAN_FLY = 0x0002, 0x0008  # Bits of supervisor.info
+CAN_ARM, ARMED, CAN_FLY = 0x0001, 0x0002, 0x0008  # Bits of supervisor.info
 ARM_TIMEOUT = 4.0  # s, the arming waits up to 2 s for the motors to idle in their rpm range
 # s between the zero setpoints that keep the supervisor's watchdog from locking the spinning victim
 SETPOINT_PERIOD = 0.05
@@ -83,6 +86,20 @@ class RadioLog:
                     return packets[-1][2][variable]
         raise KeyError(f"{self.name}: no packet with {variable} yet")
 
+    def recent(self, variable: str, seconds: float) -> NDArray:
+        """Values of a variable that arrived within the last `seconds`, in any block."""
+        t_from = time.time() - seconds
+        with self._lock:
+            for packets in self._packets.values():
+                if packets and variable in packets[-1][2]:
+                    values = []
+                    for t_pc, _, data in reversed(packets):  # Newest first, stop at the old ones
+                        if t_pc < t_from:
+                            break
+                        values.append(data[variable])
+                    return np.array(values[::-1])
+        raise KeyError(f"{self.name}: no packet with {variable} yet")
+
     def arrays(self) -> dict[str, NDArray]:
         """Every block as arrays `<block>/t_pc`, `<block>/t_tick_ms` and `<block>/<variable>`."""
         out = {}
@@ -112,7 +129,14 @@ def start_block(
 class Victim:
     """Link to the victim on the load cell, which streams the load cell and logs to its card."""
 
-    def __init__(self, drone_id: int, channel: int, radio: int, load_cell: dict):
+    def __init__(
+        self,
+        drone_id: int,
+        channel: int,
+        radio: int,
+        load_cell: dict,
+        extra_blocks: Sequence[tuple[str, tuple[str, ...], int]] = (),
+    ):
         """Reboot and connect the victim, set up its load cell and start streaming it.
 
         Args:
@@ -120,6 +144,7 @@ class Victim:
             channel: Its radio channel.
             radio: Index of the Crazyradio.
             load_cell: The `[load_cell]` section of the config.
+            extra_blocks: Further radio log blocks as name, variables and period in ms.
         """
         self.name = f"cf{drone_id}"
         self.radio_log = RadioLog(self.name, report=("supervisor.info",))
@@ -127,7 +152,8 @@ class Victim:
         self._stop_feeding = threading.Event()
         self.cf = self._connect(uri(radio, channel, drone_id))
         self.console = ConsoleCapture(self.cf)
-        check_variables(self.cf, self.name, (*LOAD_CELL_VARIABLES, *STATUS_VARIABLES))
+        extra = tuple(v for _, variables, _ in extra_blocks for v in variables)
+        check_variables(self.cf, self.name, (*LOAD_CELL_VARIABLES, *STATUS_VARIABLES, *extra))
         # The calibration and the rate are not stored on the drone, the boot resets them
         set_param(self.cf, "loadcell.a", load_cell["a"])
         set_param(self.cf, "loadcell.b", load_cell["b"])
@@ -141,19 +167,44 @@ class Victim:
                 self.radio_log,
             ),
             start_block(self.cf, "status", STATUS_VARIABLES, STATUS_PERIOD_MS, self.radio_log),
+            *(
+                start_block(self.cf, name, variables, period_ms, self.radio_log)
+                for name, variables, period_ms in extra_blocks
+            ),
         ]
 
-    def spin(self, pwm: int):
-        """Arm the victim and run its four motors at `pwm` on the load cell, until `stop_spin`.
-
-        `motorPowerSet` overrides the commands of the controller, but the motors only run while the
-        victim is armed. Spinning above idle, it counts as flying for the supervisor, which levels
-        out after 0.5 s without a setpoint and stops the motors after 2 s, so a thread sends zero
-        setpoints until the stop. A lost link stops the motors the same way.
+    def spin(self, pwm: int | Sequence[int]):
+        """Arm the victim and run its motors at `pwm` on the load cell, until `stop_spin`.
 
         Args:
-            pwm: Motor command, 0 to 65535, as the firmware's motor ratio.
+            pwm: Motor command, 0 to 65535, as the firmware's motor ratio, one for all four motors
+                or one per motor, see `set_motors`.
         """
+        self.arm()
+        self.set_motors(pwm)
+        logger.info(f"{self.name} spinning at {pwm}")
+
+    def arm(self):
+        """Arm the victim and keep its supervisor fed with zero setpoints until `stop_spin`.
+
+        `motorPowerSet` overrides the motor ratio in the firmware's `motorsSetRatio`, which
+        `motorsStop` goes through as well (motors.c). So neither a disarm nor the supervisor's
+        watchdogs stop motors under the override, only zero commands or `enable` 0 sent over the
+        radio do, and a lost link leaves them at their last command until the power is cut. The
+        victim is armed all the same: the arming checks that all four motors idle in their rpm
+        range, and the motors-not-responding check that runs while it is armed catches a motor
+        that stalls. Spinning above idle it counts as flying, which levels out after 0.5 s without
+        a setpoint and locks after 2 s, so a thread sends zero setpoints until the stop.
+
+        The firmware drops an arm request outside PreFlChecksPassed without a word, so the can-arm
+        bit of `supervisor.info` is checked first.
+        """
+        if not (info := int(self.radio_log.latest("supervisor.info"))) & CAN_ARM:
+            raise RuntimeError(
+                f"{self.name} cannot arm, supervisor.info {info:#06x}. 0x0000 after the boot means "
+                "the self-test failed (system.selftestPassed, e.g. an SD buffer too big for the "
+                "heap); otherwise it is still leaving a flying or locked state"
+            )
         self.cf.commander.send_setpoint(0, 0, 0, 0)  # Unlocks the commander
         self._stop_feeding.clear()
         self._feeding = threading.Thread(target=self._feed_setpoints, daemon=True)
@@ -170,22 +221,44 @@ class Victim:
                     "its rpm range disarms it, see the console"
                 )
             time.sleep(0.1)
-        for motor in range(1, 5):
-            set_param(self.cf, f"motorPowerSet.m{motor}", pwm)
+
+    def set_motors(self, pwm: int | Sequence[int]):
+        """Command the motors of the armed victim through `motorPowerSet`.
+
+        One command goes to all four motors in a single write, `m1` with `enable` 2, so they change
+        together; four commands go to `m1` to `m4` with `enable` 1.
+
+        Args:
+            pwm: Motor command, 0 to 65535, for all motors or one per motor.
+        """
+        if not self.spinning:
+            raise RuntimeError(f"{self.name} is not armed, call arm() first")
+        if isinstance(pwm, int):
+            set_param(self.cf, "motorPowerSet.m1", pwm)
+            set_param(self.cf, "motorPowerSet.enable", 2)
+            return
+        if len(pwm) != 4:
+            raise ValueError(f"Expected one command per motor, got {pwm}")
+        for motor, command in enumerate(pwm, start=1):
+            set_param(self.cf, f"motorPowerSet.m{motor}", int(command))
         set_param(self.cf, "motorPowerSet.enable", 1)
-        logger.info(f"{self.name} spinning at {pwm}")
 
     @property
     def spinning(self) -> bool:
-        """Whether the victim was set spinning and not stopped yet."""
+        """Whether the victim was armed and not stopped yet."""
         return self._feeding is not None
 
     def stop_spin(self):
-        """Disarm the victim, which stops its motors at once, and hand them back to the controller.
+        """Stop the motors and disarm the victim, then hand the motors back to the controller.
 
-        Never raises, it also runs while a failed flight is cleaned up.
+        The disarm goes first: it switches off the motors-not-responding check, which a motor
+        spinning down through 1 to 500 rpm for 200 ms while armed would trip, locking the
+        supervisor. Zero commands then stop the motors, the disarm alone does not under the
+        override (see `arm`). Never raises, it also runs while a failed run is cleaned up.
         """
         self.cf.supervisor.send_arming_request(False)
+        for motor in range(1, 5):
+            self.cf.param.set_value(f"motorPowerSet.m{motor}", 0)
         self.cf.param.set_value("motorPowerSet.enable", 0)
         time.sleep(STATUS_PERIOD_MS / 1000 * 2)  # Two status packets, the second after the disarm
         self._stop_feeding.set()

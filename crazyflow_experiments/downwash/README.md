@@ -121,3 +121,56 @@ writes per leg `leg<NN>/states.npz`, `meta.json` and `quicklook.png`, and per fl
 | `results/downwash/a3/NOTES.md` | Bench, flight and conversion results |
 | `results/downwash/a3/flight<k>_<timestamp>/` | `meta.json`, `records.pkl`, `sd/`, the conversion outputs |
 | `plots/downwash/` | Design and dry-run timelines |
+
+# Block A1: crazyflow's rpm2thrust on the load cell
+
+The victim (cf10) sits upright on the load cell, which its own firmware reads (the sysid build),
+and its motors run through fixed `motorPowerSet` commands while its card logs the load cell and
+the four rpm at 500 Hz. The fit of the steady windows says whether crazyflow's cf21B_500 curve
+holds, or which curve or `thrust_scale` replaces it. Spec: `CLAUDE_A1_rpm2thrust.md`; where it
+and the load cell tests disagree, `results/downwash/a1/NOTES.md` lists what the code does instead.
+
+| File | Role |
+|---|---|
+| `a1_config.toml` | Victim, mount, load cell calibration and sign, sweep levels, limits, references |
+| `sd/config_a1.txt` | Card config, 15 variables at 500 Hz, 8192 B buffer |
+| `a1_stand.py` | Config, crazyflow's curve, thrust cap, thrust predictor, the plan of each block |
+| `a1_probe.py` | Bench checks B1-B4: case, calibration weights, sample rate, card |
+| `a1_sweep.py` | Runs block `all`, `single` or `bench` (B5) and records it |
+| `a1_convert.py` | Card onto PC time, thrust, tares, steady windows, sync pulses, timeline |
+| `a1_fit.py` | Curve fits, rho, the decision, `rpm2thrust.toml` and the plots |
+
+**Safety.** `motorPowerSet` overrides the motors even when the firmware stops them, so neither a
+disarm nor the supervisor's watchdogs stop them; only the script's zero commands do. A lost link
+or a killed script leaves the motors running: power the victim from a bench supply with its
+switch in reach, props spinning with nobody near the stand and safety glasses on. The victim is
+clamped on the stand, so the thrust may reach twice its weight, bounded by 0.8 of the cell's
+rating (`capacity_g`, which has to be filled in); with `clamped = false` it would stay below 0.8
+of the weight so it never lifts off.
+
+Steps, all in `pixi run -e sim2real`, the props off until B5 has passed:
+
+```bash
+cp crazyflow_experiments/downwash/sd/config_a1.txt /media/<card>/config.txt   # card in the PC
+python crazyflow_experiments/downwash/a1_probe.py                      # B1: case S expected
+python crazyflow_experiments/downwash/a1_probe.py --calibration-check  # B2: 10, 20, 50 g
+python crazyflow_experiments/downwash/a1_probe.py --rate-check         # B3: 80 and 320 SPS
+python crazyflow_experiments/downwash/a1_probe.py --sd-check 60        # B4, then --decode <file>
+python crazyflow_experiments/downwash/a1_sweep.py --block bench        # B5, props off
+python crazyflow_experiments/downwash/a1_sweep.py --block all --dry-run
+python crazyflow_experiments/downwash/a1_sweep.py --block all          # props on
+python crazyflow_experiments/downwash/a1_convert.py results/downwash/a1/all_<timestamp> --collect /media/<card>
+python crazyflow_experiments/downwash/a1_fit.py results/downwash/a1/all_<timestamp>
+python crazyflow_experiments/downwash/a1_sweep.py --block single --from results/downwash/a1/all_<timestamp>
+```
+
+The card reads `config.txt` only at boot, and the scripts reboot the victim. Keep the flight
+config (`sd/config_victim.txt`) aside and put it back on the card afterwards. Fill in `mass_kg`
+and `capacity_g` first, the sweep refuses to run without them. Block `all` takes
+about 3 min: a tare, a sync pulse, an ascending ramp through the levels that stops at the first
+level predicted over the cap, then two seeded random orders of the allowed levels with a center
+level after every six and a tare between them, and tare, pulse, tare. The live line shows the
+four rpm, the load cell thrust and the thrust crazyflow's curve gives for those rpm. A block
+stops on Ctrl+C, a lost link, the battery under 3.4 V, a motor's rpm invalid for 0.5 s, the thrust
+over the cap, or a disarmed, locked or crashed supervisor. Repeat block `all` on another day or
+battery and fit both: their scales should agree within their errors.

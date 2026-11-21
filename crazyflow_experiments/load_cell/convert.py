@@ -74,7 +74,11 @@ def sd_file(folder: Path, role: str, meta: dict) -> Path:
 
 
 def sync_drone(
-    radio: dict, role: str, sd: dict[str, np.ndarray], sd_period: float
+    radio: dict,
+    role: str,
+    sd: dict[str, np.ndarray],
+    sd_period: float,
+    sync: tuple[str, str, float] | None = None,
 ) -> tuple[ClockMap, dict]:
     """Map a drone's tick and card timer onto PC time, see `sync.py`.
 
@@ -83,11 +87,12 @@ def sync_drone(
         role: "victim" or "source".
         sd: Its decoded card record.
         sd_period: Period of the card record in s.
+        sync: Radio block, variable and change period of the sync, `SYNC_VARIABLES[role]` if None.
 
     Returns:
         The clock map and the numbers that check it.
     """
-    block, variable, change_period = SYNC_VARIABLES[role]
+    block, variable, change_period = SYNC_VARIABLES[role] if sync is None else sync
     card_lag = (sd_period - change_period) / 2
     t_tick = unwrap_ticks(radio[f"{block}/t_tick_ms"])
     clock, stats = fit_radio_clock(t_tick, radio[f"{block}/t_pc"])
