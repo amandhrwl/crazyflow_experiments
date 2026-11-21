@@ -272,7 +272,12 @@ def test_a_leg_is_zeroed_on_its_tare_and_compared_with_its_baseline():
     """A synthetic spin leg: thrust from rpm 0.53 N, the wake takes 10 mN of it at the crossing."""
     stand = CFG["stand"]
     t_zero, cross = 1000.0, 50.0
-    spin = {"cross": cross, "pass_start": cross - 2.0, "pass_end": cross + 2.0}
+    spin = {
+        "cross": cross,
+        "pass_start": cross - 2.0,
+        "pass_end": cross + 2.0,
+        "spin_off": cross + 3.5,
+    }
     events = {"tare_start": 1040.0, "tare_end": 1042.0, "spin_on": 1043.5, "spin_off": 1053.5}
     t = np.arange(1039.0, 1055.0, 1 / 500)
     spinning = (t >= events["spin_on"]) & (t < events["spin_off"])
@@ -306,15 +311,16 @@ def test_a_leg_is_zeroed_on_its_tare_and_compared_with_its_baseline():
     assert np.allclose(arrays["src_pos_rel"], [0.0, 0.0, 0.8])
 
 
-def test_runs_merge_with_the_latest_ok_leg():
+def test_runs_merge_keeping_every_ok_repeat():
+    """Both repeats of an ok leg stay, in run order; a leg that did not spin is left out."""
     early = [{"flight": "1", "mode": "spin", "leg": "3", "status": "ok", "peak_dforce_N": "-0.01"}]
     part = [{"flight": "1", "mode": "spin", "leg": "4", "status": "not_spun"}]
     refly = [{"flight": "1", "mode": "spin", "leg": "3", "status": "ok", "peak_dforce_N": "-0.02"}]
     rows = merge_runs(
         [
-            ("stand_flight1_spin_2026-11-22_10-00-00", early + part),
             ("stand_flight1_spin_2026-11-22_11-00-00", refly),
+            ("stand_flight1_spin_2026-11-22_10-00-00", early + part),
         ]
     )
-    assert len(rows) == 1 and rows[0]["peak_dforce_N"] == "-0.02"
-    assert rows[0]["run"].endswith("11-00-00")
+    assert [row["peak_dforce_N"] for row in rows] == ["-0.01", "-0.02"]
+    assert rows[1]["run"].endswith("11-00-00")

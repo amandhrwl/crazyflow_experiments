@@ -67,6 +67,8 @@ logger.setLevel(logging.INFO)
 GRID_FREQ = 500.0  # Hz, as A3's legs
 CARD_MAX_GAP = 0.01  # s, the card is NaN across longer gaps (card stalls)
 MOCAP_MAX_GAP = 0.05  # s, the flight records are NaN across longer gaps
+GAP_BEFORE_CROSS = -1.0  # s, card gaps from here to GAP_AFTER_CROSS mark a leg card_gap
+GAP_AFTER_CROSS = 1.5  # s, the wake peaks within 0.6 s of the crossing (flight 1, 21 Nov)
 PEAK_CUTOFF = 10.0  # Hz, low-pass of the force change before its peak is taken, as A3's labels
 N_MOTORS = 4
 STAND_PLOTS_DIR = DOWNWASH_PLOTS_DIR / "a3_stand"
@@ -161,7 +163,11 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     t, weight = run["t"], run["weight_g"]
     tare_g = float(window_mean(t, weight, events["tare_start"], events["tare_end"]))
     force = (weight - tare_g) * 1e-3 * g
-    t_grid = np.arange(baseline[0], events["spin_off"], 1 / GRID_FREQ)
+    # Up to the stop of the motors, before their spin-down drops the force. Runs before 21 Nov
+    # 23:30 stamped spin_off only after stop_spin returned, ~1 s after the stop went out, so the
+    # schedule's own stop time bounds it as well.
+    stop = min(events["spin_off"], t_zero + spin["spin_off"])
+    t_grid = np.arange(baseline[0], stop, 1 / GRID_FREQ)
     t_rel = t_grid - cross
     on_grid = {
         "force_z": resample(t, force, t_grid, CARD_MAX_GAP),
@@ -178,10 +184,12 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     arrays["dforce_z"] = on_grid["force_z"] - base_force
     arrays["dthrust_rpm"] = on_grid["thrust_rpm"] - base_thrust
     arrays["dforce_wake"] = arrays["dforce_z"] - arrays["dthrust_rpm"]
-    window = (pass_start - cross, events["spin_off"] - cross)
+    window = (pass_start - cross, stop - cross)
     peak_force, t_peak = peak(t_rel, arrays["dforce_z"], *window)
     peak_wake, t_peak_wake = peak(t_rel, arrays["dforce_wake"], *window)
     drift = rpm_drift(t, run["rpm"], baseline, (pass_start, pass_end))
+    # A card stall only spoils the leg in the baseline or while the wake acts around the crossing
+    near = (t_grid < baseline[1]) | ((t_rel >= GAP_BEFORE_CROSS) & (t_rel <= GAP_AFTER_CROSS))
     summary = {key: row[key] for key in LEG_KEYS} | {
         "mode": meta["mode"],
         "run": Path(meta.get("folder", "")).name,
@@ -199,10 +207,11 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
         "rpm_drift_max": float(np.nanmax(np.abs(drift))) if np.isfinite(drift).any() else np.nan,
         "vbat_baseline_V": float(window_mean(t, run["vbat"], *baseline)),
         "card_gaps": int(np.isnan(on_grid["force_z"]).sum()),
+        "card_gaps_near": int(np.isnan(on_grid["force_z"][near]).sum()),
     }
     if meta["mode"] == "spin" and not outcome["spun"]:
         summary["status"] = "not_spun"  # Refly it: the motors did not run through the pass
-    elif summary["card_gaps"]:
+    elif summary["card_gaps_near"]:
         summary["status"] = "card_gap"
     return arrays, summary
 
@@ -223,7 +232,7 @@ def quicklook(rows: Sequence[Mapping], legs: Mapping[int, dict], title: str, pat
                 arrays["dforce_z"] * 1e3,
                 color=color,
                 lw=plots.LINE_WIDTH,
-                label=f"Δz {float(row['height_sep']):.1f} m, leg {int(row['leg'])}",
+                label=f"Δz {float(row['height_sep']):.2f} m, leg {int(row['leg'])}",
             )
         ax.axvline(0.0, color=plots.MUTED, lw=plots.LINE_WIDTH, ls=":")
         ax.set_ylabel(f"ΔF [mN], {speed:.1f} m/s")
@@ -257,7 +266,7 @@ def convert(folder: Path, calibration: Path | None = None) -> list[dict]:
         legs[leg] = arrays
         rows.append(summary)
         logger.info(
-            f"Leg {leg:2d} (Δz {row['height_sep']:.1f} m, v {row['speed']:.1f} m/s): "
+            f"Leg {leg:2d} (Δz {row['height_sep']:.2f} m, v {row['speed']:.1f} m/s): "
             f"{summary['status']}, peak ΔF {summary['peak_dforce_N'] * 1e3:+.1f} mN at "
             f"{summary['t_peak_s']:+.2f} s, rpm drift {summary['rpm_drift_mean'] * 100:+.2f} %"
         )
@@ -277,21 +286,19 @@ def write_rows(path: Path, rows: Sequence[Mapping]):
 
 
 def merge_runs(runs: Sequence[tuple[str, Sequence[Mapping]]]) -> list[dict]:
-    """Per flight, mode and leg the row of the latest run that converted it with status ok.
+    """Every row converted with status ok, repeats of a leg from several runs included.
 
     Args:
         runs: (run folder name, its summary rows) pairs; the names end in their timestamp, so the
             latest sorts last.
 
     Returns:
-        The kept rows, each with the run it came from.
+        The kept rows, each with the run it came from, by flight, mode, leg and run.
     """
-    kept: dict[tuple, dict] = {}
-    for name, rows in sorted(runs, key=lambda item: item[0][-19:]):
-        for row in rows:
-            if row["status"] == "ok":
-                kept[(int(row["flight"]), row["mode"], int(row["leg"]))] = dict(row) | {"run": name}
-    return [kept[key] for key in sorted(kept)]
+    kept = [
+        dict(row) | {"run": name} for name, rows in runs for row in rows if row["status"] == "ok"
+    ]
+    return sorted(kept, key=lambda r: (int(r["flight"]), r["mode"], int(r["leg"]), r["run"][-19:]))
 
 
 def combine(folders: Sequence[Path]) -> list[dict]:

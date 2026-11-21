@@ -73,8 +73,8 @@ def figure(
 
 
 def legend(ax: Axes, **kwargs: object):
-    """Frameless legend in secondary ink."""
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK_SECONDARY, **kwargs)
+    """Frameless legend in secondary ink; `kwargs` override the defaults, e.g. `fontsize`."""
+    ax.legend(**({"frameon": False, "fontsize": 8, "labelcolor": INK_SECONDARY} | kwargs))
 
 
 def save(fig: Figure, path: Path) -> Path:

@@ -920,7 +920,7 @@ def quicklook(
     ax[4].set_xlabel("time from the leg start [s]; shaded: settled window, line: crossing")
     plots.legend(ax[4], loc="lower left", ncols=2)
     ax[0].set_title(
-        f"Leg {int(row['leg'])}: Δz {row['height_sep']:.1f} m, v {row['speed']:.1f} m/s,"
+        f"Leg {int(row['leg'])}: Δz {row['height_sep']:.2f} m, v {row['speed']:.1f} m/s,"
         f" direction {int(row['direction']):+d}; Fz low-passed at {LABEL_CUTOFF:.0f} Hz",
         loc="left",
     )

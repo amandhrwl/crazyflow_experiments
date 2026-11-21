@@ -144,7 +144,7 @@ def dry_run(rows: Sequence[Mapping], cfg: Mapping, flight: int, prefix: str = "a
     for row in rows:
         cross = source.leg_times(int(row["leg"]))["cross"]
         axes[2, 0].annotate(
-            f"Δz {row['height_sep']:.1f}",
+            f"Δz {row['height_sep']:.2f}",
             (cross, row["height_sep"]),
             textcoords="offset points",
             xytext=(0, -12),

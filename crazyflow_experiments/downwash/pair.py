@@ -628,7 +628,7 @@ def leg_summary(
 
 
 def _log_leg(row: Mapping, stats: Mapping, flags: Sequence[str], skipped: bool):
-    head = f"Leg {int(row['leg']):2d} (Δz {row['height_sep']:.1f} m, v {row['speed']:.1f} m/s)"
+    head = f"Leg {int(row['leg']):2d} (Δz {row['height_sep']:.2f} m, v {row['speed']:.1f} m/s)"
     if skipped:
         logger.warning(f"{head}: skipped, the victim's battery was low or unread")
         return

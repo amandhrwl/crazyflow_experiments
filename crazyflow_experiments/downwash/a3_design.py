@@ -507,7 +507,7 @@ def plot_design(rows: Sequence[Mapping], cfg: Mapping, path: Path) -> Path:
             ax.set_title(f"Flight {flight}, source {label[0]}", loc="left")
         for row in flight_rows:
             ax_z.annotate(
-                f"{row['height_sep']:.1f}/{row['speed']:.1f}",
+                f"{row['height_sep']:.2f}/{row['speed']:.1f}",
                 (row["t_cross"], row["z_src"]),
                 textcoords="offset points",
                 xytext=(0, 4),

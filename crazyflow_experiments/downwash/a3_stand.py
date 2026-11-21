@@ -474,8 +474,9 @@ class VictimSchedule:
                 outcome.reason = f"battery {lowest:.2f} V under load"
                 logger.warning(f"Leg {leg.leg}: victim battery {lowest:.2f} V, its motors stop")
                 break
+        self._stamp(outcome, "spin_off")  # The stop goes out now; stop_spin returns ~1 s later
         self.victim.stop_spin()
-        self._stamp(outcome, "spin_off")
+        self._stamp(outcome, "motors_stopped")
         outcome.vbat_min_load = None if math.isinf(lowest) else lowest
         outcome.spun = outcome.reason is None and not self._stop.is_set()
 
