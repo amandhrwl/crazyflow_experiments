@@ -74,6 +74,7 @@ CARD_CONFIGS = {"a1": ("victim",), "a3": ROLES, "lc": ROLES}
 RECORDINGS = {
     "a1": A1_RESULTS_DIR,
     "a3": A3_RESULTS_DIR,
+    "a3_stand": A3_RESULTS_DIR,  # A3 on the stand records next to A3, its meta.json names both cards
     "lc": LC_RESULTS_DIR,
     "hover": HOVER_RESULTS_DIR,
 }

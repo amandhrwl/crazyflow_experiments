@@ -109,6 +109,17 @@ docstring, so only the cases that deviate are listed here.
   Both drones log onboard to micro-SD; the conversion maps each card's clock onto PC time from the
   `ctrltarget` echo of the sent setpoints (`sync.fit_clock`). It also needs the rosbag of `/tf`
   recorded during the flight. `--dry-run` plans a flight without connecting anything.
+- A3 on the stand (`a3_deploy.py --flight <k> --stand [--spin] [--legs 3,5-7]`) flies the same legs
+  over the victim cf10 clamped on the load cell, centred on its motion capture position and
+  `height_sep` above it; only the source flies, the victim is a `radio.Victim` that streams and
+  logs the load cell. With `--spin` it runs at `[stand] hover_cmd` per leg on its battery, along
+  the schedule of `a3_stand.py` (tare, arming, settle, baseline, pass, motors off), which also
+  skips spinning below a rest voltage and lists the legs to refly; `--legs` splits a flight across
+  batteries. A dry run needs `--stand-pos` and `--source-pos` and prints the battery budget. Runs
+  record to `results/downwash/a3/stand_flight<k>_<still|spin>_<time>/`, `usd.py collect --block
+  a3_stand` fills their cards in, and `a3_stand_convert.py` cuts each leg around its crossing
+  (forces in N, the victim's thrust from its rpm through cf10's A1 curve), `--combine` merges the
+  runs of a flight.
 - The load cell setup test of `downwash/` (`lc_test_*`) tests the load cell under the victim: the
   victim sits on it with its motors off and reads it with the `loadcell` deck driver of the
   firmware's sysid build, the source hovers beside, over and beside it again.
@@ -167,7 +178,7 @@ crazyflow_experiments/
 ├── utils/           # Shared paths, ROS helpers and position errors
 ├── benchmarks/      # Simulator speed benchmarking
 ├── sim2real/        # Sim-to-real validation pipeline
-├── downwash/        # Downwash blocks: flyover passes (A3), rpm2thrust (A1), load cell test
+├── downwash/        # Downwash blocks: flyover passes (A3, also over the stand), rpm2thrust (A1), load cell test
 ├── sysid/           # System identification
 ├── figure8/         # Figure-8 tracking policies (BPTT, PPO)
 ├── learn2fly/       # Reach-position policies (TD3)
@@ -249,7 +260,7 @@ Evaluation scripts and tests that report such an error call these instead of com
 | `crazyflow_experiments/throw/config.toml` | Drone and control frequency for the throw experiment |
 | `crazyflow_experiments/mppi_obstacles/config.toml` | MPPI parameters, cost weights and obstacle layout |
 | `crazyflow_experiments/vision/config.toml` | Drone and manual control interface for camera data collection |
-| `crazyflow_experiments/downwash/config.toml` | Both drones of the downwash passes with their weighed masses and `thrust_scale` calibrations of crazyflow's rpm2thrust, the pass profile of block A3, sync hop, takeoff and safety limits |
+| `crazyflow_experiments/downwash/config.toml` | Both drones of the downwash passes with their weighed masses and `thrust_scale` calibrations of crazyflow's rpm2thrust, the pass profile of block A3, sync hop, takeoff and safety limits; `[stand]` for A3 on the load cell stand: ceiling, clearance, hover command, the per-leg spin windows and the battery limits |
 | `crazyflow_experiments/hover/config.toml` | Crazyflie of the hover flights with its own weighed `mass`, which the controller flies with instead of the model's, and its `thrust_scale` |
 | `crazyflow_experiments/downwash/lc_test_config.toml` | Load cell setup test: victim on the load cell and its calibration and sample rate, the source, the holds beside and over the victim and the safety limits |
 | `crazyflow_experiments/downwash/a1_config.toml` | Block A1: the victim on the load cell (id, weighed mass, mount, clamped), the load cell calibration, force sign and sample rate, the sweep levels and holds, the thrust limits and the hover references of crazyflow's rpm2thrust |

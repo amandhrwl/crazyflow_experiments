@@ -61,3 +61,31 @@ max_tracking_error = 0.25           # m, either drone, measured vs the commanded
 victim_max_drop = 0.25              # m below hover_z
 vbat_min_start = 3.8                # V at rest before take-off, both drones
 vbat_min_close_leg = 3.45           # V under load before a Δz = 0.4 leg, else the leg is skipped and logged; F1 (18 Nov) read 3.45–3.50 there
+
+[stand]
+# A3 on the stand (a3_deploy.py --stand [--spin]): the legs above over the victim cf10 clamped on
+# the load cell. The load cell calibration and the victim's weighed mass come from a1_config.toml,
+# the same stand. The passes fly up to 1.2 m above the stand's victim (about 1.53 m), so the
+# arena's ceiling is raised for these runs: 2.73 m confirmed to fit the room (user, 21 Nov).
+arena_max_z = 2.9                   # [VERIFY] m, ceiling of the stand runs, 0.1 m above the hop
+clearance = 0.5                     # m, horizontal distance of the source's takeoff and landing from the victim
+baseline_time = 5.0                 # s of still air, motors off, before the takeoff and after the landing
+# Hover command of the spin runs, motorPowerSet units: where A1's block all (21 Nov,
+# all_2026-11-21_20-44-06) measured the weighed 54.25 g in thrust, interpolated between its ok
+# windows at 48000 (508.9 mN) and 56000 (622.0 mN). That block ran on a sagging battery (3.5 V
+# there), so at a fuller battery the same command makes more thrust; the conversion takes the
+# thrust from the rpm through cf10's A1 curve, and the spin-alone baseline of every leg measures it.
+hover_cmd = 49649
+# The victim spins per leg on its battery (A1: 4.0 to 3.4 V within a minute near hover), see
+# a3_stand.py. Before each pass: tare_s motors off, arm_lead_s for the arming, spin_settle_s for the
+# rpm to settle (A1 discarded the first 1.5 s of every level), baseline_s of spin alone while the
+# source hovers at the leg's start; after it spin_after_s, then motors off.
+tare_s = 2.0
+arm_lead_s = 1.5                    # A1: about 1 s per arming
+spin_settle_s = 1.5                 # A1's discard_s
+baseline_s = 2.0                    # the source's hover before the pass lasts 2 s
+spin_after_s = 1.5                  # the wake reaches the victim 0.1 to 0.35 s after the source (arrival_s)
+rest_gap_s = 3.0                    # s from a leg's motor stop to the next tare, for the battery to recover
+vbat_rest_min = 3.6                 # V at rest in the tare; below it the remaining legs fly without spinning
+vbat_load_min = 3.4                 # V under load (A1's abort): stops the victim's motors, never the source
+battery_spin_s = 45.0               # [VERIFY] s of hover spin one battery gives, A1: ~1 min from 4.0 to 3.4 V with rising thrust

@@ -42,7 +42,7 @@ from crazyflow_experiments.downwash.timeline import (
 from crazyflow_experiments.utils.ros import calibrate_async
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from types import FrameType
 
     from numpy.typing import NDArray
@@ -648,7 +648,12 @@ def _log_leg(row: Mapping, stats: Mapping, flags: Sequence[str], skipped: bool):
 
 
 def run_flight(
-    victim: Drone | None, source: Drone, rows: Sequence[Mapping], cfg: Mapping
+    victim: Drone | None,
+    source: Drone,
+    rows: Sequence[Mapping],
+    cfg: Mapping,
+    fixed_victim: NDArray | None = None,
+    on_start: Callable[[float], None] | None = None,
 ) -> Flight:
     """Fly the legs of one flight from one loop at the control rate.
 
@@ -665,6 +670,10 @@ def run_flight(
         source: The source.
         rows: The design rows of the flight.
         cfg: The experiment config.
+        fixed_victim: Position of a victim that does not fly, on the load cell stand, as (3,). The
+            separation rule then keeps the source above it as above a flying victim.
+        on_start: Called with the loop's start on `time.perf_counter`, the timeline's zero, e.g.
+            to drive the victim on the stand along the same timeline.
 
     Returns:
         The records, the abort reason and the per-leg results.
@@ -687,7 +696,12 @@ def run_flight(
     first_record: dict[int, int] = {}  # Index of each leg's first record
     pending = list(rows)  # Legs whose summary is not printed yet
     zero_yaw = 0.0
+    stand = None
+    if fixed_victim is not None:
+        stand = {"pos": np.asarray(fixed_victim, dtype=float), "is_outdated": False}
     t0 = time.perf_counter()
+    if on_start is not None:
+        on_start(t0)
     while True:
         if operator_stopped():
             flight.abort_reason = "operator: Ctrl+C"
@@ -709,11 +723,13 @@ def run_flight(
                     leg_times = {int(r["leg"]): tl_src.leg_times(int(r["leg"])) for r in rows}
                     logger.warning(f"Leg {leg} skipped: victim battery {vbat} V")
         obs_src = source.obs()
-        obs_vic = victim.obs() if victim is not None else None
+        obs_vic = victim.obs() if victim is not None else stand
         cmd_src = with_drag(tl_src.state(t), drag)
         cmd_vic = with_drag(tl_vic.state(t), drag) if victim is not None else None
         path_src = np.array([*recent["source"], cmd_src[0]])
         path_vic = np.array([*recent["victim"], cmd_vic[0]]) if victim is not None else None
+        if stand is not None:
+            path_vic = stand["pos"]
         reason = safety_violation(limits, obs_src, path_src, obs_vic, path_vic)
         if reason is not None:
             logger.error(f"Abort: {reason}")
@@ -816,3 +832,40 @@ def land_pair(victim: Drone | None, source: Drone, cfg: Mapping):
     _wait_landing(landing, LAND_WAIT, rate)
     for drone in drones.values():
         drone.cf.high_level_commander.stop()
+
+
+def land_source_clear(source: Drone, waypoints: Sequence[NDArray], cfg: Mapping):
+    """Land the source alone, after flying through `waypoints` with the high-level commander.
+
+    With the victim on the stand the source must not land onto it, see
+    `a3_stand.landing_waypoints`: within its clearance the source first climbs and flies sideways
+    into the return lane. Without waypoints it lands in place, as `land_pair` lands it.
+
+    Args:
+        source: The source.
+        waypoints: Points to fly through before landing, each as (3,).
+        cfg: The experiment config.
+    """
+    if not waypoints:
+        land_pair(None, source, cfg)
+        return
+    rate = cfg["drones"]["pos_update_freq"]
+    source.cf.commander.send_stop_setpoint()
+    source.cf.commander.send_notify_setpoint_stop()
+    source.cf.param.set_value("commander.enHighLevel", 1)
+    source.cf.supervisor.send_arming_request(True)
+    landing = {"source": source}
+    pos = np.asarray(source.obs()["pos"], dtype=float)
+    for point in waypoints:
+        duration = max(
+            cfg["a3"]["min_move_time"], np.linalg.norm(point - pos) / cfg["a3"]["move_speed"]
+        )
+        logger.warning(f"The source flies to {np.round(point, 2)} before it lands")
+        source.cf.high_level_commander.go_to(*point, 0.0, duration)
+        _wait_landing(landing, duration, rate)
+        if not landing:
+            return
+        pos = point
+    source.cf.high_level_commander.land(LAND_HEIGHT, LAND_DURATION)
+    _wait_landing(landing, LAND_WAIT, rate)
+    source.cf.high_level_commander.stop()

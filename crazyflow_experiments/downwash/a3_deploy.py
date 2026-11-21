@@ -14,9 +14,19 @@ name their files after the flight, `vic_<timestamp>_SD` and `src_<timestamp>_SD`
 `plots/downwash/a3_flight<k>_timeline.png` and stops before connecting. `--only-source` flies the
 source's timeline alone, with the victim on the ground and unconnected (flight F0).
 
+`--stand` flies the same legs over the victim clamped on the load cell instead, centred on its
+position in the motion capture, see `a3_stand.py`: the victim is a `radio.Victim` that streams and
+logs the load cell, and only the source flies. `--spin` runs the victim's motors at hover around
+every pass, per leg on its battery. `--legs` flies a part of the flight, e.g. the legs a spin run
+left for a refly. A stand run records to `results/downwash/a3/stand_flight<k>_<still|spin>_<time>/`
+with `radio.npz` besides; `a3_stand_convert.py` converts it. With `--dry-run`, `--stand-pos` and
+`--source-pos` stand in for the motion capture.
+
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 \
         [--dry-run] [--only-source] [--design PATH]
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand \
+        [--spin] [--legs 3,5-7] [--dry-run --stand-pos X Y Z --source-pos X Y Z]
 """
 
 from __future__ import annotations
@@ -39,7 +49,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from crazyflow_experiments.downwash import A3_RESULTS_DIR, DOWNWASH_PLOTS_DIR, plots, usd
+from crazyflow_experiments.downwash import (
+    A1_RESULTS_DIR,
+    A3_RESULTS_DIR,
+    DOWNWASH_PLOTS_DIR,
+    a1_stand,
+    a3_stand,
+    plots,
+    usd,
+)
 from crazyflow_experiments.downwash.a3_design import (
     DESIGN_PATH,
     check_design,
@@ -52,6 +70,8 @@ from crazyflow_experiments.utils.paths import REPO_ROOT, new_recording_path
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
+
+    from numpy.typing import NDArray
 
     from crazyflow_experiments.deploy.crazyflie import Drone
     from crazyflow_experiments.downwash.pair import Flight, Takeoff
@@ -77,7 +97,7 @@ def leg_distances(rows: Sequence[Mapping], victim: Timeline, source: Timeline) -
     return distances
 
 
-def dry_run(rows: Sequence[Mapping], cfg: Mapping, flight: int) -> Path:
+def dry_run(rows: Sequence[Mapping], cfg: Mapping, flight: int, prefix: str = "a3") -> Path:
     """Log the leg table and the path distances of one flight and plot its timeline."""
     victim, source = build_flight(rows, cfg)
     logger.info(f"Flight {flight}: {len(rows)} legs, {source.duration:.1f} s after takeoff")
@@ -135,7 +155,7 @@ def dry_run(rows: Sequence[Mapping], cfg: Mapping, flight: int) -> Path:
     axes[2, 0].set_xlabel("time from the flight's timeline zero [s]")
     plots.legend(axes[0, 0], loc="upper right", ncols=2)
     axes[0, 0].set_title(f"A3 flight {flight}: commanded paths, passes shaded", loc="left")
-    return plots.save(fig, DOWNWASH_PLOTS_DIR / f"a3_flight{flight}_timeline.png")
+    return plots.save(fig, DOWNWASH_PLOTS_DIR / f"{prefix}_flight{flight}_timeline.png")
 
 
 def git_info() -> dict:
@@ -349,6 +369,264 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
                 logger.warning(f"Console of the {name}: {line}")
 
 
+def card_meta(
+    times: Mapping[str, dict], consoles: Mapping[str, usd.ConsoleCapture], blocks: Mapping[str, str]
+) -> dict:
+    """The card entries of a stand run's meta.json, under "usd" as in A3."""
+    return {
+        role: {
+            **times.get(role, {}),
+            "block": blocks[role],
+            "variables": list(usd.role_config(blocks[role], role).variables),
+            "files": console.files(),
+            "skipped_variables": console.skipped_variables(),
+            "console": console.lines,
+        }
+        for role, console in consoles.items()
+    }
+
+
+def fly_stand(
+    rows: Sequence[Mapping],
+    cfg: dict,
+    flight_index: int,
+    design: Path,
+    mode: str,
+    legs: Sequence[int] | None,
+):
+    """Fly one flight, or some of its legs, over the victim on the stand and record it.
+
+    Still air with the motors off first, then the source's takeoff, the legs with the victim
+    following its schedule (`a3_stand.VictimSchedule`), the landing clear of the stand and still
+    air again. The victim's card logs throughout, the source's card from its connection.
+    """
+    # Imported here, so the dry run needs neither the radio nor ROS
+    import rclpy
+    from drone_estimators.ros_nodes.ros2_connector import ROSConnector
+
+    from crazyflow_experiments.downwash.lc_test_deploy import still_position
+    from crazyflow_experiments.downwash.pair import (
+        connect_pair,
+        ctrl_c_ends_flight,
+        land_source_clear,
+        run_flight,
+        takeoff_pair,
+    )
+    from crazyflow_experiments.downwash.radio import Victim
+
+    stand = cfg["stand"]
+    a1_cfg = a1_stand.load_config()
+    hover = stand_hover_cmd(cfg, a1_cfg)
+    drones = cfg["drones"]
+    names = {role: f"cf{drones[role]['id']}" for role in ("victim", "source")}
+    if not rclpy.ok():
+        rclpy.init()
+    mocap = ROSConnector(tf_names=list(names.values()), timeout=10.0)
+    stand_pos = still_position(mocap, names["victim"])
+    source_pos = still_position(mocap, names["source"])
+    mocap.close()
+    stand_cfg, stand_rows, schedule = plan_stand(cfg, rows, stand_pos, source_pos, legs)
+    log_schedule(schedule, stand, mode == "spin")
+    _, source_plan = build_flight(stand_rows, stand_cfg)
+    folder = new_recording_path(A3_RESULTS_DIR, f"stand_flight{flight_index}_{mode}", suffix="")
+    recorded = usd.recording_time(folder)  # Names both card files after the run
+    folder.mkdir()
+    blocks = {"victim": "lc", "source": "a3"}
+    meta = {
+        "block": "A3_stand",
+        "flight": flight_index,
+        "mode": mode,
+        "legs": [int(row["leg"]) for row in stand_rows],
+        "only_source": True,
+        "created": datetime.now().astimezone().isoformat(),
+        "argv": sys.argv,
+        "hostname": socket.gethostname(),
+        "git": git_info(),
+        "config": stand_cfg,
+        "design_file": str(design),
+        "design_rows": stand_rows,
+        "stand_pos": stand_pos,
+        "source_start": source_pos,
+        "load_cell": a1_cfg["load_cell"],
+        "victim_mass": a1_stand.victim_mass(a1_cfg),
+        "hover": hover,
+        "phases": [],
+        "t_wall_start": time.time(),
+    }
+    logger.info(f"Stand run, {mode}, legs {meta['legs']}: recording to {folder}")
+    victim = Victim(
+        drones["victim"]["id"],
+        drones["victim"]["channel"],
+        drones["victim"]["radio"],
+        a1_cfg["load_cell"],
+    )
+    plan = a3_stand.VictimSchedule(victim, schedule, stand, spin=mode == "spin")
+    source = takeoff = flight = None
+    consoles, times = {"victim": victim.console}, {"victim": {}, "source": {}}
+    airborne = landed = False
+    try:
+        usd.check_variables(victim.cf, victim.name, usd.role_config("lc", "victim").variables)
+        time.sleep(2 * a3_stand.VBAT_RECENT)  # A few status packets with the battery
+        vbat = victim.radio_log.latest("pm.vbat")
+        meta["vbat_victim_start"] = vbat
+        logger.info(f"Victim battery {vbat:.2f} V at rest")
+        if mode == "spin" and vbat < stand["vbat_rest_min"]:
+            raise RuntimeError(
+                f"The victim's battery is at {vbat:.2f} V, below {stand['vbat_rest_min']} V"
+            )
+        times["victim"]["t_wall_start"] = usd.start_logging(victim.cf, victim.name, recorded)
+        t0 = time.time()
+        time.sleep(stand["baseline_time"])
+        meta["phases"].append(("still_before", t0, time.time()))
+        _, source = connect_pair(stand_cfg, only_source=True)
+        consoles["source"] = usd.ConsoleCapture(source.cf)
+        usd.check_variables(source.cf, source.name, usd.role_config("a3", "source").variables)
+        meta["vbat_start"] = check_batteries({"source": source}, stand_cfg)
+        times["source"]["t_wall_start"] = usd.start_logging(source.cf, source.name, recorded)
+        airborne = True
+        t0 = time.time()
+        with ctrl_c_ends_flight():  # Ctrl+C ends the legs, the source lands clear of the stand
+            takeoff = takeoff_pair(None, source, {"source": source_plan.state(0.0)[0]}, stand_cfg)
+            if takeoff.error is None:
+                flight = run_flight(
+                    None, source, stand_rows, stand_cfg, fixed_victim=stand_pos, on_start=plan.start
+                )
+        plan.stop()
+        waypoints = a3_stand.landing_waypoints(source.obs()["pos"], stand_pos, stand_cfg)
+        land_source_clear(source, waypoints, stand_cfg)
+        landed = True
+        meta["phases"].append(("flight", t0, time.time()))
+        times["source"]["t_wall_stop"] = usd.stop_logging(source.cf, source.name)
+        t0 = time.time()
+        time.sleep(stand["baseline_time"])
+        meta["phases"].append(("still_after", t0, time.time()))
+    finally:
+        # Each step runs even if an earlier one failed: the victim's motors off, the source down,
+        # the cards closed, the data kept, the links closed. A failure is raised at the end.
+        error = sys.exception()
+        try:
+            plan.stop()
+            if airborne and not landed:
+                logger.error(f"Landing the source after {error!r}")
+                waypoints = a3_stand.landing_waypoints(source.obs()["pos"], stand_pos, stand_cfg)
+                land_source_clear(source, waypoints, stand_cfg)
+        finally:
+            try:
+                if source is not None and "t_wall_stop" not in times["source"]:
+                    times["source"]["t_wall_stop"] = usd.stop_logging(source.cf, source.name)
+                if "t_wall_start" in times["victim"]:
+                    times["victim"]["t_wall_stop"] = usd.stop_logging(victim.cf, victim.name)
+            finally:
+                try:
+                    meta |= stand_outcome(error, takeoff, flight, plan, times, consoles, blocks)
+                    write_outputs(folder, meta, takeoff, flight)
+                    np.savez(
+                        folder / "radio.npz",
+                        **{f"victim/{k}": v for k, v in victim.radio_log.arrays().items()},
+                    )
+                finally:
+                    if source is not None:
+                        source.close()
+                    victim.close()
+    logger.info(f"Legs flown: {sorted(meta.get('leg_flags', {}))}, abort: {meta['abort_reason']}")
+    if refly := meta["victim_schedule"]["refly_legs"]:
+        logger.warning(
+            f"Legs {refly} did not spin through their pass: refly them on a fresh battery with "
+            f"--flight {flight_index} --stand --spin --legs {','.join(map(str, refly))}"
+        )
+    for role, info in meta["usd"].items():
+        logger.info(f"SD file of the {role}: {info['files'] or 'unknown, see its card'}")
+        for line in info["console"]:
+            if any(word in line for word in FIRMWARE_ALERTS):
+                logger.warning(f"Console of the {role}: {line}")
+
+
+def stand_outcome(
+    error: BaseException | None,
+    takeoff: Takeoff | None,
+    flight: Flight | None,
+    plan: a3_stand.VictimSchedule,
+    times: Mapping[str, dict],
+    consoles: Mapping[str, usd.ConsoleCapture],
+    blocks: Mapping[str, str],
+) -> dict:
+    """The meta.json entries of a stand run known only after it."""
+    meta = outcome_meta(error, takeoff, flight, (), {}, {})
+    meta["usd"] = card_meta(times, consoles, blocks)
+    meta["victim_schedule"] = plan.report()
+    if flight is not None:
+        meta["timeline"]["victim"] = None  # The victim does not fly
+    return meta
+
+
+def stand_hover_cmd(cfg: Mapping, a1_cfg: Mapping) -> dict:
+    """The configured hover command against A1: its weight, the thrust cap and the steady windows.
+
+    Raises if the victim's weight lies above the thrust cap of the stand; warns if the latest A1
+    block puts the hover command more than `a3_stand.HOVER_CMD_TOL` away from the configured one.
+    """
+    from crazyflow_experiments.downwash.a1_convert import read_steady
+
+    mass = a1_stand.victim_mass(dict(a1_cfg))
+    weight = mass * a1_cfg["g"]
+    cap, reason = a1_stand.thrust_cap(dict(a1_cfg), mass)
+    if weight > cap:
+        raise ValueError(f"The victim's weight {weight:.3f} N exceeds the thrust cap ({reason})")
+    info = {"hover_cmd": cfg["stand"]["hover_cmd"], "weight_N": weight, "cap_N": cap}
+    blocks = sorted(A1_RESULTS_DIR.glob("all_*/steady.csv"))
+    if blocks:
+        cmd, derivation = a3_stand.hover_command(read_steady(blocks[-1]), weight)
+        info |= {"a1_block": blocks[-1].parent.name, "a1_hover_cmd": cmd} | derivation
+        if abs(cmd - info["hover_cmd"]) > a3_stand.HOVER_CMD_TOL * cmd:
+            logger.warning(
+                f"[stand] hover_cmd {info['hover_cmd']} differs from {cmd} of A1's "
+                f"{blocks[-1].parent.name}; update it knowingly"
+            )
+    return info
+
+
+def plan_stand(
+    cfg: Mapping,
+    rows: Sequence[Mapping],
+    stand_pos: NDArray,
+    source_pos: NDArray,
+    legs: Sequence[int] | None,
+) -> tuple[dict, list[dict], list[a3_stand.LegSpin]]:
+    """The stand's config, rows and spin schedule of a flight, checked against every limit."""
+    rows = a3_stand.select_legs(rows, legs)
+    stand_cfg, stand_rows = a3_stand.stand_flight(cfg, rows, stand_pos)
+    check_design(stand_rows, stand_cfg)
+    a3_stand.check_source_start(source_pos, stand_pos, cfg["stand"]["clearance"])
+    _, source_plan = build_flight(stand_rows, stand_cfg)
+    schedule = a3_stand.spin_schedule(source_plan, stand_rows, cfg["stand"])
+    return stand_cfg, stand_rows, schedule
+
+
+def log_schedule(schedule: Sequence[a3_stand.LegSpin], stand: Mapping, spin: bool):
+    """The victim's windows of every leg and the battery budget of a spin run."""
+    logger.info(
+        "leg  tare   arm   cmd  baseline  pass  cross  pass end  motors off  spin [s] (timeline s)"
+    )
+    for leg in schedule:
+        logger.info(
+            f"{leg.leg:3d} {leg.tare_start:6.1f} {leg.arm_at:5.1f} {leg.spin_on:5.1f} "
+            f"{leg.baseline_start:8.1f} {leg.pass_start:6.1f} {leg.cross:6.1f} {leg.pass_end:8.1f} "
+            f"{leg.spin_off:10.1f} {leg.spin_time:9.1f}"
+        )
+    budget = a3_stand.battery_budget(schedule, stand)
+    logger.info(
+        f"Battery budget: {budget['spin_s_total']:.0f} s of spin over {len(schedule)} legs, "
+        f"{max(budget['spin_s_per_leg'].values()):.1f} s at most per leg; one battery gives about "
+        f"{budget['battery_spin_s']:.0f} s, so {budget['legs_per_battery']} legs per battery and "
+        f"{budget['batteries']} batteries for these legs"
+        + ("" if spin else " (still run: the motors stay off)")
+    )
+
+
+def _parse_point(values: Sequence[float] | None) -> NDArray | None:
+    return None if values is None else np.asarray(values, dtype=float)
+
+
 def main():
     """Command line: fly or dry-run one flight of the design."""
     parser = argparse.ArgumentParser(description="Fly one flight of the downwash block A3.")
@@ -356,7 +634,14 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Plan only, connect nothing")
     parser.add_argument("--only-source", action="store_true", help="Leave the victim on the ground")
     parser.add_argument("--design", type=Path, default=DESIGN_PATH, help="Design csv")
+    parser.add_argument("--stand", action="store_true", help="Victim clamped on the load cell")
+    parser.add_argument("--spin", action="store_true", help="With --stand: spin it at hover")
+    parser.add_argument("--legs", type=a3_stand.parse_legs, help="Fly only these legs, e.g. 3,5-7")
+    parser.add_argument("--stand-pos", type=float, nargs=3, help="Dry run: the victim on the stand")
+    parser.add_argument("--source-pos", type=float, nargs=3, help="Dry run: the source's spot")
     args = parser.parse_args()
+    if (args.spin or args.legs or args.stand_pos) and not args.stand:
+        raise ValueError("--spin, --legs and --stand-pos go with --stand")
     cfg = load_config(require_masses=not args.dry_run)
     rows_all = read_design(args.design)
     check_design(rows_all, cfg)
@@ -364,6 +649,22 @@ def main():
     if args.flight not in grouped:
         raise ValueError(f"{args.design} has no flight {args.flight}, only {sorted(grouped)}")
     rows = grouped[args.flight]
+    if args.stand:
+        mode = "spin" if args.spin else "still"
+        stand_pos, source_pos = _parse_point(args.stand_pos), _parse_point(args.source_pos)
+        if args.dry_run:
+            if stand_pos is None or source_pos is None:
+                raise ValueError("A dry run of --stand needs --stand-pos and --source-pos")
+            stand_cfg, stand_rows, schedule = plan_stand(
+                cfg, rows, stand_pos, source_pos, args.legs
+            )
+            logger.info(f"Stand run, {mode}: victim at {stand_pos}, source at {source_pos}")
+            logger.info(f"Hover command: {stand_hover_cmd(cfg, a1_stand.load_config())}")
+            logger.info(f"Saved {dry_run(stand_rows, stand_cfg, args.flight, 'a3_stand')}")
+            log_schedule(schedule, cfg["stand"], args.spin)
+            return
+        fly_stand(rows, cfg, args.flight, args.design, mode, args.legs)
+        return
     if args.dry_run:
         logger.info(f"Saved {dry_run(rows, cfg, args.flight)}")
         return

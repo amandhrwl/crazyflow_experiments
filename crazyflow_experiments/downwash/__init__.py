@@ -7,6 +7,10 @@ micro-SD card decks, the PC records the motion capture and the setpoints it send
 drones, `a3_deploy.py` flies the flight through `pair.py`, and `a3_convert.py` maps the SD logs
 onto PC time, aligns them with the motion capture and cuts the legs.
 
+A3 on the stand flies the same legs over the victim clamped on the load cell, its motors off or
+spinning at hover per leg on its battery: `a3_stand.py` holds the geometry and the victim's spin
+schedule, `a3_deploy.py --stand` flies it and `a3_stand_convert.py` cuts the legs.
+
 Block A1 checks crazyflow's rpm2thrust with the victim on the load cell: `a1_probe.py` runs the
 bench checks, `a1_sweep.py` drives the motors through fixed commands, `a1_convert.py` cuts the
 steady windows and `a1_fit.py` fits the thrust curve. `a1_stand.py` holds what they share.

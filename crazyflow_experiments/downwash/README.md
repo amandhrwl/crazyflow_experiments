@@ -3,6 +3,8 @@
 The blocks of the downwash experiment, all in this package and the `sim2real` environment:
 
 - **A3**, flyover passes of the source over the hovering victim, both in flight.
+- **A3 on the stand**, the same passes over the victim clamped on the load cell, its motors off or
+  spinning at hover.
 - **A1**, crazyflow's rpm2thrust checked with the victim's motors running on the load cell.
 - The **load cell setup test**, the source hovering beside and over the victim on the load cell.
 
@@ -10,7 +12,7 @@ They share one layer:
 
 | File | Role |
 |---|---|
-| `usd.py` | Card configs onto a card (`write-config --block <a1, a3, lc> --role <role>`), logging start and stop, card files into their recordings (`collect --block <a1, a3, lc, hover>`), the card bench test (`bench`), the log decoder |
+| `usd.py` | Card configs onto a card (`write-config --block <a1, a3, lc> --role <role>`), logging start and stop, card files into their recordings (`collect --block <a1, a3, a3_stand, lc, hover>`), the card bench test (`bench`), the log decoder |
 | `sd/config_<block>_<role>.txt` | The card configs of every block, file stem `vic` on the victim and `src` on the source |
 | `sync.py` | Onboard clocks onto PC time: through the radio (A1, load cell test) or the setpoint echo (A3) |
 | `radio.py` | Radio logs stamped with their PC arrival time, the victim's link on the load cell |
@@ -155,6 +157,98 @@ writes per leg `leg<NN>/states.npz`, `meta.json` and `quicklook.png`, and per fl
 | `results/downwash/a3/NOTES.md` | Bench, flight and conversion results |
 | `results/downwash/a3/flight<k>_<timestamp>/` | `meta.json`, `records.pkl`, `sd/`, the conversion outputs |
 | `plots/downwash/` | Design and dry-run timelines |
+
+## A3 on the stand: the passes over the victim on the load cell
+
+The source flies A3's legs, the same design rows, speeds and height separations, over the victim
+cf10 clamped upright on the load cell stand, so each leg later lines up with its free-hover twin.
+The legs are centred on the victim's position in the motion capture and fly `height_sep` above it,
+up to 2.73 m with the stand at 1.53 m; `[stand] arena_max_z` raises the ceiling for these runs.
+Every flight is flown twice: **still**, motors off, the wake on the still airframe, and **spin**,
+the victim at its hover command (`[stand] hover_cmd`, where A1 measured its weight in thrust).
+
+| File | Role |
+|---|---|
+| `a3_stand.py` | Stand geometry, hover command from A1, the victim's per-leg spin schedule, the battery budget, the thread that drives the victim |
+| `a3_deploy.py --stand [--spin] [--legs ...]` | Flies one flight, or some of its legs, over the stand |
+| `a3_stand_convert.py` | Cuts every leg around its crossing, merges the runs of a flight (`--combine`) |
+| `config.toml` `[stand]` | Ceiling, clearance, hover command and its derivation, spin windows, battery limits |
+
+The load cell calibration (run 6) and the victim's weighed mass come from `a1_config.toml`, the
+same stand.
+
+### The victim's battery: spin per leg
+
+The victim stays on its battery, which in A1 sagged from 4.0 to 3.4 V within about a minute near
+hover. It therefore spins per leg only, along a schedule in the source's timeline, checked against
+the design:
+
+| Window | Length | What happens |
+|---|---|---|
+| tare | `tare_s` 2 s | motors off; zeroes the load cell for this leg and reads the battery at rest |
+| arming | `arm_lead_s` 1.5 s | arm, then the hover command through `motorPowerSet` |
+| settle | `spin_settle_s` 1.5 s | the rpm settles (A1 discarded the first 1.5 s of every level) |
+| baseline | `baseline_s` 2 s | spin alone while the source hovers at the leg's start, 1.15 to 2.14 m out |
+| pass | 4 to 5.6 s | the source passes over |
+| after | `spin_after_s` 1.5 s | the wake arrives 0.1 to 0.35 s after the source; then motors off |
+
+A leg spins 10.6 to 12.1 s; a flight 101 s. With `battery_spin_s` 45 s of hover per battery
+(**[VERIFY]** on the first spin run) that is **3 legs per battery, 3 batteries per flight**; the dry
+run prints this budget for the legs it plans. Between legs the battery is read at rest in the tare:
+below `vbat_rest_min` 3.6 V the remaining legs fly without spinning (the source flies them as in a
+still run) and are listed in `meta.json` and at the end, with the `--legs` command that reflies
+them. Under load, A1's `vbat_load_min` 3.4 V stops the victim's motors only, never the source.
+
+`motorPowerSet` overrides every stop of the firmware: the disarm, the watchdogs and a lost link
+leave the motors at their last command. The script stops them with a disarm, zero commands and
+`enable` 0; keep the victim's battery plug within reach.
+
+### Flying
+
+Cards: the victim runs the load cell test's victim config, the source A3's:
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/usd.py write-config /media/<card> --block lc --role victim
+pixi run -e sim2real python crazyflow_experiments/downwash/usd.py write-config /media/<card> --block a3 --role source
+```
+
+Terminals as for A3, the motion capture and the source's estimator (the victim needs none). The
+stand must sit within 0.06 m of x = 0: the 1.4 m/s passes span ±2.14 m and the arena allows
+±2.2 m, which the dry run checks. The source stands at least 0.5 m from the stand.
+
+```bash
+# Plan first: --stand-pos and --source-pos stand in for the motion capture
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin \
+    --dry-run --stand-pos 0 0.12 1.53 --source-pos -0.3 -1.0 0.04
+# Still: one battery per flight
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand
+# Spin: one fresh victim battery per three legs
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 0-2
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 3-5
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 6-8
+```
+
+Flights 2 and 3 likewise, legs 9-11, 12-14, 15-17 and 18-20, 21-23, 24-26: six runs per flight
+in all, one still and three spin parts, plus any refly the battery asks for. Each run reboots the
+victim, records 5 s of still air, takes the source off, flies the legs with the victim following
+its schedule, lands the source clear of the stand (within the clearance it first climbs and moves
+into the return lane) and records still air again. Ctrl+C ends the legs and lands the source.
+
+### After a run
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/usd.py collect /media/<card> --block a3_stand
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py results/downwash/a3/stand_flight1_spin_<time>
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py --combine results/downwash/a3/stand_flight*
+```
+
+Each run gets `legs/leg<NN>.npz` (t from the crossing in s; `force_z`, `dforce_z`, `thrust_rpm`,
+`dthrust_rpm`, `dforce_wake` in N, up positive; the four rpm; the source's position relative to
+the victim and its velocity), `summary.csv` (tare, baseline, peak change and its time after the
+crossing, rpm drift over the pass, battery) and `sync.json`. The rotor thrust comes from the rpm
+through cf10's A1 curve, so the sag at a fixed command is accounted for; `dforce_wake` is what the
+rotor speeds do not explain. `--combine` keeps, per flight, mode and leg, the latest run that flew
+it in full, in `results/downwash/a3/stand_summary.csv` and `plots/downwash/a3_stand/`.
 
 ## Block A1: crazyflow's rpm2thrust on the load cell
 
