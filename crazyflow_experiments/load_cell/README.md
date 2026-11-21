@@ -93,7 +93,9 @@ pixi run -e sim2real python crazyflow_experiments/load_cell/convert.py results/l
 
 It writes `synced.npz` (every record on one time axis, s from the start of `still_before`, the
 force on the victim in N with up positive) and `sync.json` into the recording and a quicklook to
-`plots/load_cell/`. What the setup should show:
+`plots/load_cell/`. The force uses the calibration the test flew with; a test flown with an
+outdated one converts with `--calibration <calib_run.toml>` of `calibscale.py`, and `sync.json`
+notes which one it used. What the setup should show:
 
 - `load_cell.zero_g` near 0 g: the calibration offset still holds. `noise_std_g` is the noise floor.
 - `over` clearly negative, the source's wake pushing the victim down, `aside_1` and `aside_2`

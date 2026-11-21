@@ -79,6 +79,24 @@ def test_force_is_zeroed_on_still_air_and_shows_the_hold_over(recording: Path):
     assert phases["aside_1"]["mean_mN"] == pytest.approx(0.0, abs=0.2)
 
 
+def test_a_calibration_file_replaces_the_flown_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A test flown with an outdated calibration converts with the file's a and b instead."""
+    monkeypatch.setattr(convert, "QUICKLOOK_DIR", tmp_path / "plots")
+    folder = tmp_path / "test_fake"
+    folder.mkdir()
+    fakes.write_recording(folder)
+    calibration = tmp_path / "calib_run.toml"
+    calibration.write_text(f"a = {-fakes.A}\nb = {fakes.B}\n")  # The cell's output reversed
+    report = convert.convert(folder, calibration)
+    assert report["load_cell"]["calibration"] == {
+        "a": -fakes.A,
+        "b": fakes.B,
+        "from": str(calibration),
+    }
+    over = report["load_cell"]["phases"]["over"]["mean_mN"]
+    assert over == pytest.approx(-fakes.OVER_FORCE * 1e3, abs=0.2)
+
+
 def test_radio_clock_fit_runs_through_a_tick_wrap():
     """The 24 bit tick wraps after 4.66 h, the unwrapped time and the fit carry on through it."""
     tick = (TICK_WRAP - 5000 + np.arange(0, 10000, 10)) % TICK_WRAP

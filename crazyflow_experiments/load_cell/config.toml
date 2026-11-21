@@ -2,7 +2,7 @@
 # beside it again. See README.md.
 
 [victim]
-id = 4                              # the drone on the load cell, it reads the load cell itself
+id = 10                             # the drone on the load cell, it reads the load cell itself
 model = "cf21B_500"                 # mass and thrust map of the spinning test, sysid/config_drones.toml
 channel = 80
 radio = 0                           # Crazyradio index; a second radio here takes load off radio 0
@@ -16,10 +16,12 @@ pos_update_freq = 20                # Hz, motion capture pose sent to the onboar
 [load_cell]
 # The firmware computes loadcell.weight = a * loadcell.rawWeight + b, in grams of upward force on
 # the victim: thrust counts positive, a load pushing down negative (calibscale.py --drone-on-top).
-# From crazyflie-firmware/tools/system_id/calibration.toml, run 3 of the new load cell (0 to
-# 50 g), 19 Nov, at 10 SPS. Run 2 was the old cell: a 4.5 times steeper slope of the other sign.
-a = -7.637814860773531e-5
-b = 78.71625307872215
+# From crazyflie-firmware/tools/system_id/calibration.toml, run 5 of the new load cell (0 to
+# 50 g), 21 Nov, at 10 SPS, with cf10 on it as in the tests: its zero matches cf10 at rest in the
+# test of 16:31 within 0.03 g. Run 4 (21 Nov, a = 7.210020982921703e-5) had another zero, 100 g
+# away; run 3 (19 Nov, a = -7.637814860773531e-5) the other sign, the output reversed after 20 Nov.
+a = 7.26815116086076e-5
+b = 156.48154812390965
 sample_rate = 3                     # loadcell.sampleRate: 0, 1, 2, 3, 7 = 10, 20, 40, 80, 320 SPS
 radio_period_ms = 10                # 100 Hz radio log of the load cell
 

@@ -7,10 +7,13 @@ Copy the card files into the recording first, `usd.py collect <card>` puts them 
 
 Run with
     pixi run -e sim2real python crazyflow_experiments/load_cell/convert.py \
-        results/load_cell/test_<timestamp>
+        results/load_cell/test_<timestamp> [--calibration <calib_run.toml>]
 
 Writes `synced.npz` and `sync.json` into the recording, every time in s from the start of the
 still air before the flight, and a quicklook to `plots/load_cell/`. See `sync.py` for the clocks.
+The force uses the load cell calibration the test flew with, from `meta.json`. `--calibration`
+takes `a` and `b` from a calibration file of `calibscale.py` instead, for a test flown with an
+outdated one; `sync.json` notes which calibration the force comes from.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 
@@ -206,11 +210,13 @@ def quicklook(data: dict[str, np.ndarray], phases: list, title: str, path: Path)
     plt.close(fig)
 
 
-def convert(folder: Path) -> dict:
+def convert(folder: Path, calibration: Path | None = None) -> dict:
     """Sync one recording, write `synced.npz`, `sync.json` and the quicklook.
 
     Args:
         folder: The recording, `results/load_cell/test_<timestamp>`.
+        calibration: A calibration file of `calibscale.py` whose `a` and `b` replace the ones the
+            test flew with.
 
     Returns:
         The contents of `sync.json`.
@@ -222,7 +228,9 @@ def convert(folder: Path) -> dict:
     t_ref = phases[0][1]  # Start of the still air before the flight
     phases = [(name, t0 - t_ref, t1 - t_ref) for name, t0, t1 in phases]
     victim_pos = np.asarray(meta["victim_pos"])
-    a, b = meta["config"]["load_cell"]["a"], meta["config"]["load_cell"]["b"]
+    flown = meta["config"]["load_cell"]
+    cal = flown if calibration is None else tomllib.loads(Path(calibration).read_text())
+    a, b = cal["a"], cal["b"]
 
     data, report = {"t_ref": np.array(t_ref), "victim_pos": victim_pos}, {"t_ref": t_ref}
     for role in ("victim", "source"):
@@ -246,7 +254,11 @@ def convert(folder: Path) -> dict:
     _, t0, t1 = phases[0]
     at_rest = (data["victim_sd/t"] >= t0) & (data["victim_sd/t"] < t1)
     tare = weights["victim_sd"][at_rest].mean()
-    report["load_cell"] = {"zero_g": tare, "noise_std_g": weights["victim_sd"][at_rest].std()}
+    report["load_cell"] = {
+        "calibration": {"a": a, "b": b, "from": str(calibration or "meta.json")},
+        "zero_g": tare,
+        "noise_std_g": weights["victim_sd"][at_rest].std(),
+    }
     for record, weight in weights.items():
         data[f"{record}/force_z"] = (weight - tare) * 1e-3 * G
     report["load_cell"]["phases"] = phase_forces(
@@ -274,4 +286,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Sync the logs of a load cell test")
     parser.add_argument("folder", type=Path, help="results/load_cell/test_<timestamp>")
-    convert(parser.parse_args().folder)
+    parser.add_argument(
+        "--calibration", type=Path, help="calibscale.py file whose a and b replace the flown ones"
+    )
+    args = parser.parse_args()
+    convert(args.folder, args.calibration)
