@@ -3,8 +3,8 @@
 Block A3 of the real-flight protocol: the victim hovers at a fixed point while the source flies
 straight passes over it at three heights and three speeds. Both drones log onboard to their
 micro-SD card decks, the PC records the motion capture and the setpoints it sends.
-`design.py` writes the leg table, `timeline.py` turns one flight of it into the setpoints of both
-drones, `deploy_a3.py` flies the flight through `pair.py`, and `convert_a3.py` maps the SD logs
+`a3_design.py` writes the leg table, `timeline.py` turns one flight of it into the setpoints of both
+drones, `a3_deploy.py` flies the flight through `pair.py`, and `a3_convert.py` maps the SD logs
 onto PC time, aligns them with the motion capture and cuts the legs.
 
 Block A1 checks crazyflow's rpm2thrust with the victim on the load cell: `a1_probe.py` runs the

@@ -15,7 +15,7 @@ name their files after the flight, `vic_<timestamp>_SD` and `src_<timestamp>_SD`
 source's timeline alone, with the victim on the ground and unconnected (flight F0).
 
 Run with
-    pixi run -e sim2real python crazyflow_experiments/downwash/deploy_a3.py --flight 1 \
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 \
         [--dry-run] [--only-source] [--design PATH]
 """
 
@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from crazyflow_experiments.downwash import A3_RESULTS_DIR, DOWNWASH_PLOTS_DIR, plots, usd
-from crazyflow_experiments.downwash.design import (
+from crazyflow_experiments.downwash.a3_design import (
     DESIGN_PATH,
     check_design,
     flights,
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from crazyflow_experiments.downwash.timeline import Timeline
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("crazyflow_experiments.downwash.deploy_a3")  # Not __name__, the __main__
+logger = logging.getLogger("crazyflow_experiments.downwash.a3_deploy")  # Not __name__, the __main__
 logging.getLogger("crazyflow_experiments").setLevel(logging.INFO)  # Flight progress and leg lines
 
 FIRMWARE_ALERTS = ("[FAIL]", "Locked", "Crashed", "free falling", "tumbled")  # Console lines

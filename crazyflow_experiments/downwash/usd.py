@@ -440,7 +440,8 @@ def _parse(path: Path) -> tuple[list[_Event], dict]:
     stopped with `usd.logging = 0`; without it the parser warns and keeps every complete record.
 
     Returns:
-        The event types in file order with their timestamps in µs and value rows, and the file info.
+        The event types in file order with their timestamps in µs and value rows, and the file
+        info.
     """
     path = Path(path)
     data = path.read_bytes()
@@ -600,7 +601,7 @@ def bench(role: str, duration: float) -> tuple[int, int]:
     from crazyflow.control import Control  # The drone helpers need cflib and ROS
 
     from crazyflow_experiments.deploy.experiment import connect
-    from crazyflow_experiments.downwash.design import load_config
+    from crazyflow_experiments.downwash.a3_design import load_config
     from crazyflow_experiments.downwash.pair import disarm, drone_config
 
     config = role_config("a3", role)
@@ -630,7 +631,7 @@ def bench(role: str, duration: float) -> tuple[int, int]:
 
 
 def main():
-    """Command line: write a config onto a card, collect card files, or test a card on the ground."""
+    """Command line: write a config onto a card, collect card files, or bench test a card."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
     write = commands.add_parser("write-config", help="Copy a block's config.txt onto a card")

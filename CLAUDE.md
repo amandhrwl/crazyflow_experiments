@@ -103,9 +103,9 @@ docstring, so only the cases that deviate are listed here.
   the card's files into `<recording>/sd/<role>/`, and `usd.sd_file` finds a role's file there by
   that name, the recording's timestamp, or as the only file.
 - Block A3 of `downwash/` flies two Crazyflies at once: the victim hovers while the source passes
-  over it. `design.py` writes the leg table, `deploy_a3.py --flight <k>` flies one flight of it,
+  over it. `a3_design.py` writes the leg table, `a3_deploy.py --flight <k>` flies one flight of it,
   both drones served by the one loop of `downwash/pair.py` from the joint takeoff to the joint
-  landing, and `convert_a3.py <flight folder> --bag <bag>` cuts the legs into the thesis format.
+  landing, and `a3_convert.py <flight folder> --bag <bag>` cuts the legs into the thesis format.
   Both drones log onboard to micro-SD; the conversion maps each card's clock onto PC time from the
   `ctrltarget` echo of the sent setpoints (`sync.fit_clock`). It also needs the rosbag of `/tf`
   recorded during the flight. `--dry-run` plans a flight without connecting anything.

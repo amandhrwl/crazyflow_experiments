@@ -28,7 +28,7 @@ thrust_scale = 0.92                 # hover of vic09-12 (cf3) at 45.25 g, 0.4907
 ctrl_freq = 100
 
 [a3]
-speeds = [0.5, 1.0]                 # v_max is appended by design.py from the arena
+speeds = [0.5, 1.0]                 # v_max is appended by a3_design.py from the arena
 height_seps = [0.4, 0.8, 1.2]
 lateral_offset = 0.0
 repeats = 3

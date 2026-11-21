@@ -44,11 +44,11 @@ every setpoint it sends.
 | File | Role |
 |---|---|
 | `config.toml` | Drones, profile, sync hop, takeoff and safety limits; `[FILL]` values come from the lab |
-| `design.py` | Leg table `results/downwash/a3/design_a3.csv` and its plot |
+| `a3_design.py` | Leg table `results/downwash/a3/design_a3.csv` and its plot |
 | `timeline.py` | Setpoints of both drones over a flight: holds, moves, hops and passes in closed form |
 | `pair.py` | Both drones from one loop: joint takeoff, legs with the safety checks, joint landing |
-| `deploy_a3.py` | Flies one flight and records it |
-| `convert_a3.py` | Turns a flight into per-leg arrays in the thesis format |
+| `a3_deploy.py` | Flies one flight and records it |
+| `a3_convert.py` | Turns a flight into per-leg arrays in the thesis format |
 | `sd/config_a3_victim.txt`, `sd/config_a3_source.txt` | The two card configs, 20 variables each at 500 Hz |
 
 ### Before the first flight
@@ -56,7 +56,7 @@ every setpoint it sends.
 1. Fill in `config.toml`: the drone ids, the weighed masses (deck, card, markers and battery
    included), each drone's `thrust_scale` and the real flight volume in `[safety]`. The
    `thrust_scale` calibrates crazyflow's rpm2thrust for that drone: hover it, and divide
-   `mass_kg * g` by the mean thrust its logged rpm give on the uncalibrated curve. `design.py` derives `v_max` from the arena
+   `mass_kg * g` by the mean thrust its logged rpm give on the uncalibrated curve. `a3_design.py` derives `v_max` from the arena
    and refuses one below 1.2 m/s.
 2. Write the card configs and put each card in its drone before power-up, the firmware reads
    `config.txt` only at boot:
@@ -69,9 +69,9 @@ every setpoint it sends.
 3. Write and check the design, then plan every flight without connecting anything:
 
    ```bash
-   pixi run -e sim2real python crazyflow_experiments/downwash/design.py --config a3
-   pixi run -e sim2real python crazyflow_experiments/downwash/design.py plot
-   pixi run -e sim2real python crazyflow_experiments/downwash/deploy_a3.py --flight 1 --dry-run
+   pixi run -e sim2real python crazyflow_experiments/downwash/a3_design.py --config a3
+   pixi run -e sim2real python crazyflow_experiments/downwash/a3_design.py plot
+   pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --dry-run
    ```
 
    `--single V DZ` writes a one-leg design for a quick test instead, e.g. `--single 1.0 0.5`, flown
@@ -86,7 +86,7 @@ ros2 launch motion_capture_tracking launch.py
 python -m drone_estimators.ros_nodes.ros2_node --drone_name cf<victim id> --legacy
 python -m drone_estimators.ros_nodes.ros2_node --drone_name cf<source id> --legacy
 ros2 bag record /tf -o results/downwash/a3/bags/flight<k>
-python crazyflow_experiments/downwash/deploy_a3.py --flight <k>
+python crazyflow_experiments/downwash/a3_deploy.py --flight <k>
 ```
 
 Fly in this order, and look at each flight before the next:
@@ -96,7 +96,7 @@ Fly in this order, and look at each flight before the next:
 | F0 | `--flight 1 --only-source`, victim on the ground and unconnected | cruise speed within 2 % in every settled window, off-path error below 5 cm |
 | F1 | `--flight 1`, shakedown order from Δz 1.2 to 0.4 m | convert it first: sync, label bias, one Fz peak per leg at the predicted lag |
 | F2, F3 | `--flight 2`, `--flight 3` | |
-| Make-up | `design.py --makeup <legs>` writes `design_makeup_f4_legs….csv`, flown with `--flight 4 --design <that csv>` | the legs of F1–F3 whose `summary.csv` status is not `ok`: `hard_fail` (e.g. `sd_gap_*`, a card stall inside the label window; stalls elsewhere only flag `sd_gap_outside_label_*`), `skipped` or `not_flown`; they keep their leg numbers |
+| Make-up | `a3_design.py --makeup <legs>` writes `design_makeup_f4_legs….csv`, flown with `--flight 4 --design <that csv>` | the legs of F1–F3 whose `summary.csv` status is not `ok`: `hard_fail` (e.g. `sd_gap_*`, a card stall inside the label window; stalls elsewhere only flag `sd_gap_outside_label_*`), `skipped` or `not_flown`; they keep their leg numbers |
 
 Before each flight: fresh batteries in both drones (at least 3.8 V at rest), doors closed and
 ventilation off. The cards name their files after the flight; on older firmware they number them,
@@ -138,7 +138,7 @@ results/downwash/a3/flight<k>_<timestamp>/sd/source/src_<timestamp>_SD   (srcNN 
 and convert:
 
 ```bash
-pixi run -e sim2real python crazyflow_experiments/downwash/convert_a3.py results/downwash/a3/flight<k>_<timestamp> \
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_convert.py results/downwash/a3/flight<k>_<timestamp> \
     --bag results/downwash/a3/bags/flight<k>
 ```
 

@@ -17,13 +17,14 @@ that arrives `arrival_s` after the source has still been seen.
 `--makeup LEG ...` writes one more flight with legs of `--design` (the block by default) to fly
 again, e.g. those whose conversion failed on a gap in an SD log. The legs keep their numbers,
 cells and repeats, and the flight is numbered after the design's last one; fly it with
-`deploy_a3.py --flight <its number> --design <the written csv>`.
+`a3_deploy.py --flight <its number> --design <the written csv>`.
 
 Run with
-    pixi run -e sim2real python crazyflow_experiments/downwash/design.py --config a3 [--seed 0]
-    pixi run -e sim2real python crazyflow_experiments/downwash/design.py --config a3 --single 1.0 0.5
-    pixi run -e sim2real python crazyflow_experiments/downwash/design.py --makeup 4 13 22
-    pixi run -e sim2real python crazyflow_experiments/downwash/design.py plot [--design PATH]
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_design.py --config a3 [--seed 0]
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_design.py --config a3 \
+        --single 1.0 0.5
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_design.py --makeup 4 13 22
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_design.py plot [--design PATH]
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-logger = logging.getLogger("crazyflow_experiments.downwash.design")  # Not __name__, the __main__
+logger = logging.getLogger("crazyflow_experiments.downwash.a3_design")  # Not __name__, the __main__
 
 DESIGN_PATH = A3_RESULTS_DIR / "design_a3.csv"
 COLUMNS = (

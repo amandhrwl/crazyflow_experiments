@@ -12,7 +12,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from scipy.integrate import quad  # noqa: E402
 
-from crazyflow_experiments.downwash.design import (  # noqa: E402
+from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     build_design,
     flights,
     load_config,

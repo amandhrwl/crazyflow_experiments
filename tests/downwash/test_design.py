@@ -14,7 +14,7 @@ import pytest  # noqa: E402
 import toml  # noqa: E402
 
 from crazyflow_experiments.downwash import CONFIG_PATH  # noqa: E402
-from crazyflow_experiments.downwash.design import (  # noqa: E402
+from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     arrival_time,
     build_design,
     build_makeup,

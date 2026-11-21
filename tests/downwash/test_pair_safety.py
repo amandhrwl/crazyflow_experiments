@@ -22,8 +22,8 @@ from types import SimpleNamespace  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-from crazyflow_experiments.downwash import deploy_a3, pair, usd  # noqa: E402
-from crazyflow_experiments.downwash.design import (  # noqa: E402
+from crazyflow_experiments.downwash import a3_deploy, pair, usd  # noqa: E402
+from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     build_design,
     drag_per_speed,
     load_config,
@@ -417,11 +417,11 @@ def test_placement_needs_the_arena_margin_and_spacing(cfg: dict):
         }
 
     for victim_xy, source_xy in PLACEMENTS:
-        deploy_a3.check_placement(drones(victim_xy, source_xy), cfg)
+        a3_deploy.check_placement(drones(victim_xy, source_xy), cfg)
     with pytest.raises(RuntimeError, match="apart"):
-        deploy_a3.check_placement(drones((0.3, -0.4), (0.3, 0.4)), cfg)
+        a3_deploy.check_placement(drones((0.3, -0.4), (0.3, 0.4)), cfg)
     with pytest.raises(RuntimeError, match="arena margin"):
-        deploy_a3.check_placement(drones((0.0, 0.0), (-2.4, 0.0)), cfg)
+        a3_deploy.check_placement(drones((0.0, 0.0), (-2.4, 0.0)), cfg)
 
 
 @pytest.mark.parametrize(("victim_xy", "source_xy"), PLACEMENTS[:2])
@@ -508,7 +508,7 @@ def test_landing_kills_a_tipped_drone(cfg: dict, clock: FakeClock):
 def deploy_env(
     cfg: dict, clock: FakeClock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> SimpleNamespace:
-    """`deploy_a3.fly` against fake drones, SD cards and calibration, writing into tmp_path."""
+    """`a3_deploy.fly` against fake drones, SD cards and calibration, writing into tmp_path."""
     victim = FakeDrone(cfg["drones"]["victim"]["id"], np.array([0.0, 0.0, 0.02]))
     source = FakeDrone(cfg["drones"]["source"]["id"], np.array([-2.0, 0.0, 0.02]))
     sd_calls: list[tuple[str, str]] = []
@@ -529,8 +529,8 @@ def deploy_env(
             return clock.time()
 
         monkeypatch.setattr(usd, f"{action}_logging", log)
-    monkeypatch.setattr(deploy_a3, "A3_RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(deploy_a3, "git_info", lambda: {"hash": "0" * 40, "dirty": False})
+    monkeypatch.setattr(a3_deploy, "A3_RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(a3_deploy, "git_info", lambda: {"hash": "0" * 40, "dirty": False})
     flight_cfg = copy.deepcopy(cfg)
     for role in ("victim", "source"):
         flight_cfg["drones"][role]["mass_kg"] = 0.045
@@ -621,7 +621,7 @@ def test_deploy_flies_lands_and_records(
 ):
     battery(monkeypatch, 4.0)
     env = deploy_env
-    deploy_a3.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
+    a3_deploy.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
     meta = flight_meta(env.folder)
     assert meta["abort_reason"] is None and meta["error"] is None
     vic, src = (f"cf{env.cfg['drones'][role]['id']}" for role in ("victim", "source"))
@@ -643,7 +643,7 @@ def test_deploy_flies_lands_and_records(
 def test_deploy_lands_both_when_a_drone_did_not_arm(deploy_env: SimpleNamespace):
     env = deploy_env
     env.victim.info_armed = 0x0201  # Disarmed by the arming rpm check
-    deploy_a3.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
+    a3_deploy.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
     meta = flight_meta(env.folder)
     assert meta["abort_reason"].startswith("arming: the victim cannot fly")
     assert [call[0] for call in env.sd_calls].count("stop") == 2  # The SD files are closed
@@ -665,7 +665,7 @@ def test_deploy_lands_and_keeps_the_legs_on_ctrl_c(
         return run(victim, source, rows, cfg)
 
     monkeypatch.setattr(pair, "run_flight", run_with_ctrl_c)
-    deploy_a3.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
+    a3_deploy.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
     meta = flight_meta(env.folder)
     assert meta["abort_reason"] == "operator: Ctrl+C" and meta["error"] is None
     assert "timeline" in meta
@@ -691,7 +691,7 @@ def test_deploy_abort_path_lands_stops_logging_and_records(
 
     env.source.obs = covered_markers
     with pytest.raises(RuntimeError, match="outdated"):
-        deploy_a3.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
+        a3_deploy.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
     meta = flight_meta(env.folder)
     assert "outdated" in meta["abort_reason"] and "outdated" in meta["error"]
     assert [call[0] for call in env.sd_calls].count("stop") == 2

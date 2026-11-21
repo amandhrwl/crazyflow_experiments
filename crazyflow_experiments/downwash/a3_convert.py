@@ -1,6 +1,6 @@
 """Convert one A3 flight into per-leg arrays in the thesis format.
 
-The inputs are the flight folder of `deploy_a3.py` (`meta.json`, `records.pkl`), the SD logs of
+The inputs are the flight folder of `a3_deploy.py` (`meta.json`, `records.pkl`), the SD logs of
 both drones, copied into its `sd/victim/` and `sd/source/` (`usd.py collect <card> --block a3`),
 and the rosbag of `/tf` recorded during
 the flight. numpy and scipy do the computing; crazyflow is only read for the drone parameters and
@@ -27,7 +27,7 @@ the model, scaled by each drone's `thrust_scale` from the config. The bias does 
 wrong scale also distorts every change of thrust during the pass.
 
 Run with
-    pixi run -e sim2real python crazyflow_experiments/downwash/convert_a3.py <flight folder> \
+    pixi run -e sim2real python crazyflow_experiments/downwash/a3_convert.py <flight folder> \
         --bag results/downwash/a3/bags/flight<k> [--victim-sd FILE] [--source-sd FILE]
 
 The SD file of each drone is the one its console reported in `meta.json`, `vic_<timestamp>_SD`
@@ -60,7 +60,7 @@ from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 
 from crazyflow_experiments.downwash import ROLES, plots, usd
-from crazyflow_experiments.downwash.design import SETTLED_EXT_MARGIN, gravity, model_params
+from crazyflow_experiments.downwash.a3_design import SETTLED_EXT_MARGIN, gravity, model_params
 from crazyflow_experiments.downwash.sync import ClockFit, fit_clock
 from crazyflow_experiments.downwash.thrust import curve, rotor_thrust
 from crazyflow_experiments.downwash.timeline import segment_leg_times, victim_hover_point
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 logger = logging.getLogger(
-    "crazyflow_experiments.downwash.convert_a3"
+    "crazyflow_experiments.downwash.a3_convert"
 )  # Not __name__, the __main__
 logger.setLevel(logging.INFO)
 
@@ -852,7 +852,7 @@ def leg_meta(
         "design": dict(row),
         "sweep": {"key": f"real/A3/{leg}"},
         "files": {"folder": str(data.folder / f"leg{leg:02d}")},
-        "code": {"git": flight["git"], "converter": "crazyflow_experiments.downwash.convert_a3"},
+        "code": {"git": flight["git"], "converter": "crazyflow_experiments.downwash.a3_convert"},
         "signals": {
             "quat_order": QUAT_ORDER,
             "units": {
@@ -1175,7 +1175,7 @@ def convert_flight(
 def main():
     """Command line: convert one flight folder."""
     parser = argparse.ArgumentParser(description="Convert one A3 flight into per-leg arrays.")
-    parser.add_argument("folder", type=Path, help="Flight folder written by deploy_a3.py")
+    parser.add_argument("folder", type=Path, help="Flight folder written by a3_deploy.py")
     parser.add_argument("--bag", type=Path, required=True, help="rosbag of /tf of the flight")
     parser.add_argument(
         "--victim-sd", default=None, help="Victim SD file, path or name in sd/victim"

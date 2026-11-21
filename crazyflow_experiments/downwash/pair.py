@@ -32,7 +32,7 @@ from scipy.spatial.transform import Rotation as R
 from crazyflow_experiments.control.loop import sleep_until_next_cycle
 from crazyflow_experiments.deploy.experiment import connect
 from crazyflow_experiments.downwash import usd
-from crazyflow_experiments.downwash.design import drag_per_speed
+from crazyflow_experiments.downwash.a3_design import drag_per_speed
 from crazyflow_experiments.downwash.timeline import (
     CEILING_MARGIN,
     build_flight,

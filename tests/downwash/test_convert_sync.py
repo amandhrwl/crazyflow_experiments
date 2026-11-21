@@ -23,16 +23,16 @@ import pytest  # noqa: E402
 from rosbags.rosbag2 import Writer  # noqa: E402
 from rosbags.typesys import Stores, get_typestore  # noqa: E402
 
-from crazyflow_experiments.downwash import convert_a3, pair, usd  # noqa: E402
-from crazyflow_experiments.downwash.convert_a3 import (  # noqa: E402
+from crazyflow_experiments.downwash import a3_convert, pair, usd  # noqa: E402
+from crazyflow_experiments.downwash.a3_convert import (  # noqa: E402
     body_forces,
     derive,
     fill_dropouts,
     lag,
     resample,
 )
-from crazyflow_experiments.downwash.deploy_a3 import write_outputs  # noqa: E402
-from crazyflow_experiments.downwash.design import (  # noqa: E402
+from crazyflow_experiments.downwash.a3_deploy import write_outputs  # noqa: E402
+from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     build_design,
     load_config,
     model_params,
@@ -139,17 +139,17 @@ def test_find_sd_file_takes_new_and_old_card_names(tmp_path: Path):
         (folder / "sd" / role).mkdir(parents=True)
         (folder / "sd" / role / name).write_bytes(b"\xbc")
     meta = {"usd": {"victim": {"files": ["vic_2026-11-22_10-00-00_SD"]}, "source": {"files": []}}}
-    victim = convert_a3.find_sd_file(folder, "victim", None, meta)
+    victim = a3_convert.find_sd_file(folder, "victim", None, meta)
     assert victim == folder / "sd" / "victim" / "vic_2026-11-22_10-00-00_SD"
     # The console line was lost, and the only file there is an old numbered one
-    assert convert_a3.find_sd_file(folder, "source", None, meta).name == "src07"
+    assert a3_convert.find_sd_file(folder, "source", None, meta).name == "src07"
     meta["usd"]["source"]["files"] = ["src07"]  # Reported by the console of an older flight
-    assert convert_a3.find_sd_file(folder, "source", None, meta).name == "src07"
-    assert convert_a3.find_sd_file(folder, "victim", str(victim), meta) == victim
+    assert a3_convert.find_sd_file(folder, "source", None, meta).name == "src07"
+    assert a3_convert.find_sd_file(folder, "victim", str(victim), meta) == victim
     (folder / "sd" / "victim" / "vic03").write_bytes(b"\xbc")
-    assert convert_a3.find_sd_file(folder, "victim", "vic03", meta).name == "vic03"
+    assert a3_convert.find_sd_file(folder, "victim", "vic03", meta).name == "vic03"
     with pytest.raises(FileNotFoundError):
-        convert_a3.find_sd_file(folder, "victim", "vic04", meta)
+        a3_convert.find_sd_file(folder, "victim", "vic04", meta)
 
 
 def test_lag_recovers_a_shift():
@@ -411,7 +411,7 @@ def synthetic_flight(
         },
     }
     write_outputs(folder, json.loads(json.dumps(meta, default=float)), takeoff, flight)
-    summary = convert_a3.convert_flight(folder, bag, {"victim": None, "source": None}, 0.005)
+    summary = a3_convert.convert_flight(folder, bag, {"victim": None, "source": None}, 0.005)
     return {"folder": folder, "summary": summary, "clocks": clocks, "rows": rows, "cfg": cfg}
 
 
