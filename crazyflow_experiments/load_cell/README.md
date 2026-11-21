@@ -74,8 +74,10 @@ reading of every phase and the card files to copy.
 that makes `[spin] thrust_fraction` (0.5, at most 0.8) of its weight in thrust. With its motors off
 the load cell only feels the wake on the still airframe; a flying victim mostly loses rotor thrust
 in it, which the spinning victim shows. The script arms the victim after the still air, overrides
-its motors with `motorPowerSet` and keeps its supervisor's watchdog fed with zero setpoints, so a
-lost link stops the motors within 2 s. New phases: `spin_up`, `spin_alone` (the load cell measures
+its motors with `motorPowerSet` and keeps its supervisor's watchdog fed with zero setpoints. The
+override outlasts every stop of the firmware, the disarm and the watchdogs included, so the script
+stops the motors with zero commands and `enable` 0, and a lost link leaves them at their last
+command: keep a power cut within reach. New phases: `spin_up`, `spin_alone` (the load cell measures
 the thrust at the command, against the thrust from the logged rpm), then the source's flight,
 `spin_alone_after` and `spin_down` before `still_after`. Its card logs the four motor rpm and its
 tilt for the force balance F = m a - T(rpm).

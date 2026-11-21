@@ -127,6 +127,7 @@ class FakeLink:
     def __init__(self, arms: bool):
         """Arm on request if `arms`, as with every motor idling in its rpm range."""
         self.params: dict[str, float] = {}
+        self.calls: list[tuple] = []  # Arming requests and parameter writes, in order
         self.setpoints = 0
         self.info = 0x0001
         self.arms = arms
@@ -137,6 +138,7 @@ class FakeLink:
     def set_value(self, name: str, value: float):
         """Write a parameter."""
         self.params[name] = value
+        self.calls.append(("param", name, value))
 
     def get_value(self, name: str) -> float:
         """Read a parameter."""
@@ -148,6 +150,7 @@ class FakeLink:
 
     def send_arming_request(self, arm: bool):
         """Arm or disarm, the supervisor reports it in supervisor.info."""
+        self.calls.append(("arm", arm))
         self.info = (ARMED | CAN_FLY) if arm and self.arms else 0x0001
 
     def latest(self, variable: str) -> int:
@@ -164,16 +167,24 @@ def fake_victim(link: FakeLink) -> Victim:
 
 
 def test_spinning_victim_arms_feeds_the_watchdog_and_disarms(monkeypatch: pytest.MonkeyPatch):
-    """The motors get the command once armed, setpoints flow until the stop, which disarms."""
+    """The motors get the command once armed, setpoints flow until the stop, which disarms.
+
+    The stop disarms first, which switches off the motors-not-responding check, and then zeroes the
+    commands: under the override a disarm alone does not stop the motors (motors.c routes
+    motorsStop through the override).
+    """
     monkeypatch.setattr("crazyflow_experiments.load_cell.radio.STATUS_PERIOD_MS", 50)
     link = FakeLink(arms=True)
     victim = fake_victim(link)
     victim.spin(17000)
     assert [link.params[f"motorPowerSet.m{i}"] for i in range(1, 5)] == [17000] * 4
     assert link.params["motorPowerSet.enable"] == 1 and victim.spinning
+    link.calls.clear()
     victim.stop_spin()
-    assert link.info & ARMED == 0 and link.params["motorPowerSet.enable"] == 0
-    assert link.setpoints > 1 and not victim.spinning
+    assert link.calls[0] == ("arm", False)
+    assert [link.params[f"motorPowerSet.m{i}"] for i in range(1, 5)] == [0] * 4
+    assert link.calls[-1] == ("param", "motorPowerSet.enable", 0)
+    assert link.info & ARMED == 0 and link.setpoints > 1 and not victim.spinning
 
 
 def test_a_victim_that_does_not_arm_never_gets_a_motor_command(monkeypatch: pytest.MonkeyPatch):
@@ -184,4 +195,5 @@ def test_a_victim_that_does_not_arm_never_gets_a_motor_command(monkeypatch: pyte
     victim = fake_victim(link)
     with pytest.raises(RuntimeError, match="did not arm"):
         victim.spin(17000)
-    assert "motorPowerSet.m1" not in link.params and not victim.spinning
+    # The stop after the failed arming writes zeros, never the command
+    assert link.params.get("motorPowerSet.m1", 0) == 0 and not victim.spinning

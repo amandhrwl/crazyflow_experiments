@@ -146,10 +146,13 @@ class Victim:
     def spin(self, pwm: int):
         """Arm the victim and run its four motors at `pwm` on the load cell, until `stop_spin`.
 
-        `motorPowerSet` overrides the commands of the controller, but the motors only run while the
-        victim is armed. Spinning above idle, it counts as flying for the supervisor, which levels
-        out after 0.5 s without a setpoint and stops the motors after 2 s, so a thread sends zero
-        setpoints until the stop. A lost link stops the motors the same way.
+        `motorPowerSet` overrides the motor ratio in the firmware's `motorsSetRatio`, which
+        `motorsStop` goes through as well (motors.c). So neither a disarm nor the supervisor's
+        watchdogs stop motors under the override, only zero commands or `enable` 0 sent over the
+        radio do, and a lost link leaves them at their last command until the power is cut. The
+        victim is armed all the same, so the arming checks that all four motors idle in their rpm
+        range. Spinning above idle it counts as flying, which levels out after 0.5 s without a
+        setpoint and locks after 2 s, so a thread sends zero setpoints until the stop.
 
         Args:
             pwm: Motor command, 0 to 65535, as the firmware's motor ratio.
@@ -181,11 +184,16 @@ class Victim:
         return self._feeding is not None
 
     def stop_spin(self):
-        """Disarm the victim, which stops its motors at once, and hand them back to the controller.
+        """Stop the motors and disarm the victim, then hand the motors back to the controller.
 
-        Never raises, it also runs while a failed flight is cleaned up.
+        The disarm goes first: it switches off the motors-not-responding check, which a motor
+        spinning down through 1 to 500 rpm for 200 ms while armed would trip, locking the
+        supervisor. Zero commands then stop the motors, the disarm alone does not under the
+        override (see `spin`). Never raises, it also runs while a failed flight is cleaned up.
         """
         self.cf.supervisor.send_arming_request(False)
+        for motor in range(1, 5):
+            self.cf.param.set_value(f"motorPowerSet.m{motor}", 0)
         self.cf.param.set_value("motorPowerSet.enable", 0)
         time.sleep(STATUS_PERIOD_MS / 1000 * 2)  # Two status packets, the second after the disarm
         self._stop_feeding.set()
