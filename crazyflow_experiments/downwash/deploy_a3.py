@@ -269,6 +269,7 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
     # Imported here, so the dry run needs neither the radio nor ROS
     from crazyflow_experiments.downwash.pair import (
         connect_pair,
+        ctrl_c_ends_flight,
         land_pair,
         run_flight,
         takeoff_pair,
@@ -307,9 +308,10 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
         for name, drone in drones.items():
             usd_times[name]["t_wall_start"] = usd.start_usd_logging(drone)
         airborne = True
-        takeoff = takeoff_pair(victim, source, targets, cfg)
-        if takeoff.error is None:
-            flight = run_flight(victim, source, rows, cfg)
+        with ctrl_c_ends_flight():  # Ctrl+C lands both and keeps the records of the legs flown
+            takeoff = takeoff_pair(victim, source, targets, cfg)
+            if takeoff.error is None:
+                flight = run_flight(victim, source, rows, cfg)
         land_pair(victim, source, cfg)
         landed = True
     finally:

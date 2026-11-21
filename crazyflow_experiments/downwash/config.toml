@@ -10,19 +10,19 @@ pos_update_freq = 20                # Hz, motion capture pose sent to the onboar
 
 [drones.victim]
 radio = 0
-id = 3                              # [FILL] the drone with the victim card
+id = 10                              # the drone with the victim card; source before 19 Nov
 channel = 80
 hover_xy = [0.0, 0.0]               # the victim hovers straight above this point
 hover_z = 1.0
-mass_kg = 0.04525                   # weighed with deck, card, markers and the new battery
-thrust_scale = 0.92              # hover of vic09-12 at 45.25 g, 0.4907 N from rpm over m g
+mass_kg = 0.051322                  # cf4, weighed 19 Nov
+thrust_scale = 0.92                 # [FILL] cf4 estimated from F1 (18 Nov), not from a hover
 
 [drones.source]
-radio = 1
-id = 4                              # [FILL]
-channel = 80                        # same channel: both share radio 0
-mass_kg = 0.04525                     # [FILL]
-thrust_scale = 0.92                  # [FILL] from a hover of the source, as for the victim
+radio = 0
+id = 3                            # the drone with the source card; victim before 19 Nov
+channel = 80                        # same channel: both share radio 0, the radio keys are not read
+mass_kg = 0.04525                   # weighed with deck, card, markers and the new battery
+thrust_scale = 0.92                 # hover of vic09-12 (cf3) at 45.25 g, 0.4907 N from rpm over m g
 
 [control]
 ctrl_freq = 100

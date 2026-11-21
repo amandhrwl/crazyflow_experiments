@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import logging
 import math
+import signal
 import struct
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -40,7 +42,8 @@ from crazyflow_experiments.downwash.timeline import (
 from crazyflow_experiments.utils.ros import calibrate_async
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
+    from types import FrameType
 
     from numpy.typing import NDArray
 
@@ -81,6 +84,37 @@ F0_TRACKING_TOL = 0.10  # m, path error of the source that needs a look (§0)
 # 0.17 s late (F0), which alone puts the source 0.24 m behind its setpoint at 1.4 m/s
 TRACKING_WINDOW = 0.3
 OBS_KEYS = ("pos", "quat", "vel", "ang_vel", "pos_raw", "quat_raw")
+
+_operator_stop = threading.Event()
+
+
+@contextmanager
+def ctrl_c_ends_flight() -> Iterator[None]:
+    """Turn the first Ctrl+C into a stop that `takeoff_pair` and `run_flight` check every tick.
+
+    Left alone, Ctrl+C raises KeyboardInterrupt wherever the loop happens to be, before rclpy's own
+    handler ends `rclpy.ok()`, and the records of every leg flown are lost with `run_flight` (A3 F1,
+    19 Nov). Inside this context the first Ctrl+C only sets the stop, so the loop returns its records
+    and the caller lands both; it also puts Python's handler back, so a second Ctrl+C raises as usual.
+    """
+    _operator_stop.clear()
+
+    def on_sigint(signum: int, frame: FrameType | None):
+        _operator_stop.set()
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+        logger.warning("Ctrl+C: ending the flight, both land. Ctrl+C again raises")
+
+    previous = signal.signal(signal.SIGINT, on_sigint)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous or signal.default_int_handler)
+        _operator_stop.clear()
+
+
+def operator_stopped() -> bool:
+    """Whether the operator pressed Ctrl+C, see `ctrl_c_ends_flight`, or ROS shut down."""
+    return _operator_stop.is_set() or not rclpy.ok()
 
 
 @dataclass(frozen=True)
@@ -446,7 +480,7 @@ def takeoff_pair(
     arming: _ArmingCheck | None = None
     armed = False
     t0 = t_calibration = time.perf_counter()
-    while rclpy.ok():
+    while not operator_stopped():
         t = time.perf_counter()
         obs = {name: drone.obs() for name, drone in drones.items()}
         for name, o in obs.items():
@@ -619,8 +653,8 @@ def run_flight(
     """Fly the legs of one flight from one loop at the control rate.
 
     Every tick: observe both drones, check the safety rules, send both setpoints, update both
-    estimators, record, sleep. Any broken rule ends the loop with its reason, and so does Ctrl+C,
-    which ends `rclpy.ok()`; the caller lands the pair afterwards.
+    estimators, record, sleep. Any broken rule ends the loop with its reason, and so does Ctrl+C
+    inside `ctrl_c_ends_flight`; the caller lands the pair afterwards.
 
     Before every leg at or below `CLOSE_HEIGHT_SEP` the victim's battery is read in the background;
     below `vbat_min_close_leg`, or without a reading, the leg is replaced by a hold of the same
@@ -655,7 +689,7 @@ def run_flight(
     zero_yaw = 0.0
     t0 = time.perf_counter()
     while True:
-        if not rclpy.ok():
+        if operator_stopped():
             flight.abort_reason = "operator: Ctrl+C"
             break
         tick = time.perf_counter()
