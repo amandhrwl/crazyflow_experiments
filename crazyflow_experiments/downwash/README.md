@@ -36,7 +36,7 @@ The hover experiment (`hover/deploy.py`) names and collects its card the same wa
 ## Block A3: flyover passes over a hovering victim
 
 One Crazyflie, the *victim*, hovers at a fixed point. A second, the *source*, flies straight passes
-over it at 0.4, 0.8 and 1.2 m above, at 0.5, 1.0 and `v_max` m/s. Each of the nine cells is flown
+over it at 0.25, 0.5 and 1.0 m above (0.4, 0.8 and 1.2 m until 21 Nov), at 0.5, 1.0 and `v_max` m/s. Each of the nine cells is flown
 once per flight in three flights, 27 legs in all. Every pass flies from -x to +x; after it the
 source flies back to the next start point through a lane `return_lane` (1.0 m) to the side of the
 victim, clear of its wake, so it only ever crosses over the victim during a pass. Both drones log
@@ -113,15 +113,15 @@ both report their state: the firmware silently disarms a drone whose motors do n
 arming rpm range (1000 to 3500 rpm), so a drone that did not arm ends the takeoff and both land,
 and the run prints the firmware's console line naming the motor. The takeoff flies both to their
 positions: both climb straight up, the victim to its hover height and the source
-to 2.2 m, the height of the highest pass, turning to face +x; then both fly level to above their
-targets, so the source is at least 1.2 m above the victim even where their paths cross; then the
+to 2.0 m, the height of the highest pass, turning to face +x; then both fly level to above their
+targets, so the source is at least 1.0 m above the victim even where their paths cross; then the
 source sinks to the start point of its first leg. One loop streams the setpoints of both drones at
 100 Hz throughout and checks every tick: fresh motion capture, the arena, the vertical separation
 while the two are horizontally close, each drone's distance from its commanded path of the last
 0.3 s, and the victim's drop. The onboard controller follows the setpoints about 0.17 s late (F0),
 so a drone is measured against its path rather than its current setpoint: late but on its path
 passes. Any violation, or Ctrl+C, lands both in place; the upper one climbs first if they are close.
-Before every pass at Δz = 0.4 m the victim's battery is read under load; below `vbat_min_close_leg` (3.45 V) the leg becomes
+Before every pass at Δz <= 0.4 m (the 0.25 m passes) the victim's battery is read under load; below `vbat_min_close_leg` (3.45 V) the leg becomes
 a hold of the same length, and the next leg flies back from where the source holds. After each leg
 the script prints the cruise speed, how far the source strayed from its path and fell behind its
 setpoint, the victim's excursion and its position spread in the pre-pass hover, which flags the leg
@@ -192,8 +192,10 @@ the design:
 | pass | 4 to 5.6 s | the source passes over |
 | after | `spin_after_s` 1.5 s | the wake arrives 0.1 to 0.35 s after the source; then motors off |
 
-A leg spins 10.6 to 12.1 s; a flight 101 s. With `battery_spin_s` 45 s of hover per battery
-(**[VERIFY]** on the first spin run) that is **3 legs per battery, 3 batteries per flight**; the dry
+The stand flies only the passes at `[stand] height_seps`, 0.25 and 0.5 m (at most 0.5 m above
+the victim, user, 21 Nov), six of the nine legs of each flight. A leg spins 10.6 to 12.1 s; a
+flight 67 s. With `battery_spin_s` 45 s of hover per battery (**[VERIFY]** on the first spin run)
+that is **3 legs per battery, 2 batteries per flight**; the dry
 run prints this budget for the legs it plans. Between legs the battery is read at rest in the tare:
 below `vbat_rest_min` 3.6 V the remaining legs fly without spinning (the source flies them as in a
 still run) and are listed in `meta.json` and at the end, with the `--legs` command that reflies
@@ -220,16 +222,17 @@ stand must sit within 0.06 m of x = 0: the 1.4 m/s passes span ±2.14 m and the 
 # Plan first: --stand-pos and --source-pos stand in for the motion capture
 pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin \
     --dry-run --stand-pos 0 0.12 1.53 --source-pos -0.3 -1.0 0.04
-# Still: one battery per flight
+# Still: one battery per flight, its six stand legs
 pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand
 # Spin: one fresh victim battery per three legs
-pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 0-2
 pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 3-5
 pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 6-8
 ```
 
-Flights 2 and 3 likewise, legs 9-11, 12-14, 15-17 and 18-20, 21-23, 24-26: six runs per flight
-in all, one still and three spin parts, plus any refly the battery asks for. Each run reboots the
+Flights 2 and 3 likewise. Their cells are shuffled, so their stand legs are not consecutive:
+flight 2 `--legs 9,10,12` and `--legs 14,15,17`, flight 3 `--legs 18,20,21` and
+`--legs 22,23,24`. Three runs per flight in all, one still and two spin parts, plus any refly the
+battery asks for; `--legs` refuses a leg at a separation the stand skips. Each run reboots the
 victim, records 5 s of still air, takes the source off, flies the legs with the victim following
 its schedule, lands the source clear of the stand (within the clearance it first climbs and moves
 into the return lane) and records still air again. Ctrl+C ends the legs and lands the source.

@@ -104,9 +104,9 @@ def test_arena(limits: SafetyLimits, pos: list[float], inside: bool):
 
 
 def test_separation(limits: SafetyLimits):
-    low = VICTIM + np.array([0.1, 0.0, 0.2])  # 0.2 m above, 0.1 m to the side
+    low = VICTIM + np.array([0.1, 0.0, 0.1])  # 0.1 m above, 0.1 m to the side
     assert violation(limits, low, VICTIM).startswith("separation")
-    assert violation(limits, VICTIM + np.array([0.0, 0.0, 0.26]), VICTIM) is None
+    assert violation(limits, VICTIM + np.array([0.0, 0.0, 0.16]), VICTIM) is None
     assert (
         violation(limits, VICTIM + np.array([0.45, 0.0, 0.1]), VICTIM) is None
     )  # Outside xy_guard

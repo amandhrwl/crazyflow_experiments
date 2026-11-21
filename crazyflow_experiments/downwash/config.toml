@@ -29,7 +29,7 @@ ctrl_freq = 100
 
 [a3]
 speeds = [0.5, 1.0]                 # v_max is appended by a3_design.py from the arena
-height_seps = [0.4, 0.8, 1.2]
+height_seps = [0.25, 0.5, 1.0]      # m, source above the victim (user, 21 Nov; was 0.4, 0.8, 1.2)
 lateral_offset = 0.0
 repeats = 3
 ramp = 1.0
@@ -55,19 +55,23 @@ hover_time = 2.0
 arena_min = [-2.5, -2.0, 0.0]       # [FILL]
 arena_max = [2.5, 2.0, 2.3]         # [FILL]
 x_margin = 0.3
-min_vertical_sep = 0.25             # m, while |Δxy| < xy_guard
+# m, while |Δxy| < xy_guard. 0.15 since the lowest pass flies 0.25 m above the victim (the design
+# keeps the commanded paths SEPARATION_MARGIN = 0.05 m above it): a source 10 cm below a 0.25 m
+# pass aborts, while the two drones, about 5 cm tall, stay clear of each other.
+min_vertical_sep = 0.15
 xy_guard = 0.40
 max_tracking_error = 0.25           # m, either drone, measured vs the commanded path of the last 0.3 s
 victim_max_drop = 0.25              # m below hover_z
 vbat_min_start = 3.8                # V at rest before take-off, both drones
-vbat_min_close_leg = 3.45           # V under load before a Δz = 0.4 leg, else the leg is skipped and logged; F1 (18 Nov) read 3.45–3.50 there
+vbat_min_close_leg = 3.45           # V under load before a Δz <= 0.4 leg (pair.CLOSE_HEIGHT_SEP), else the leg is skipped and logged; F1 (18 Nov) read 3.45–3.50 there
 
 [stand]
 # A3 on the stand (a3_deploy.py --stand [--spin]): the legs above over the victim cf10 clamped on
 # the load cell. The load cell calibration and the victim's weighed mass come from a1_config.toml,
-# the same stand. The passes fly up to 1.2 m above the stand's victim (about 1.53 m), so the
-# arena's ceiling is raised for these runs: 2.73 m confirmed to fit the room (user, 21 Nov).
+# the same stand. The passes fly up to 0.5 m above the stand's victim (about 1.54 m), so the
+# arena's ceiling is raised for these runs (2.73 m was confirmed to fit the room, user, 21 Nov).
 arena_max_z = 2.9                   # [VERIFY] m, ceiling of the stand runs, 0.1 m above the hop
+height_seps = [0.25, 0.5]           # m, the A3 separations the stand runs fly (user, 21 Nov: at most 0.5 m)
 clearance = 0.5                     # m, horizontal distance of the source's takeoff and landing from the victim
 baseline_time = 5.0                 # s of still air, motors off, before the takeoff and after the landing
 # Hover command of the spin runs, motorPowerSet units: where A1's block all (21 Nov,

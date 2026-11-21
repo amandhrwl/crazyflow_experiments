@@ -594,6 +594,12 @@ def plan_stand(
 ) -> tuple[dict, list[dict], list[a3_stand.LegSpin]]:
     """The stand's config, rows and spin schedule of a flight, checked against every limit."""
     rows = a3_stand.select_legs(rows, legs)
+    flown = {int(row["leg"]) for row in a3_stand.stand_rows(rows, cfg)}
+    if legs is not None and (other := sorted(set(legs) - flown)):
+        raise ValueError(
+            f"Legs {other} fly at a separation the stand skips, [stand] height_seps "
+            f"{cfg['stand']['height_seps']}"
+        )
     stand_cfg, stand_rows = a3_stand.stand_flight(cfg, rows, stand_pos)
     check_design(stand_rows, stand_cfg)
     a3_stand.check_source_start(source_pos, stand_pos, cfg["stand"]["clearance"])

@@ -43,7 +43,14 @@ def stand_plan(legs: list[int] | None = None) -> tuple[dict, list[dict], list[a3
 
 def test_legs_are_centred_on_the_stand_at_their_height_above_it():
     cfg, rows = a3_stand.stand_flight(CFG, FLIGHT_1, STAND)
-    for row, original in zip(rows, FLIGHT_1):
+    originals = {int(r["leg"]): r for r in FLIGHT_1}
+    # Only the separations of [stand] height_seps fly (at most 0.5 m, user, 21 Nov)
+    assert sorted({float(r["height_sep"]) for r in rows}) == sorted(CFG["stand"]["height_seps"])
+    assert len(rows) == len(FLIGHT_1) * len(CFG["stand"]["height_seps"]) // len(
+        CFG["a3"]["height_seps"]
+    )
+    for row in rows:
+        original = originals[int(row["leg"])]
         assert row["x_start"] == pytest.approx(original["x_start"] + STAND[0])
         assert row["z_src"] == pytest.approx(STAND[2] + original["height_sep"])
     assert cfg["drones"]["victim"]["hover_xy"] == pytest.approx(STAND[:2].tolist())
@@ -52,7 +59,7 @@ def test_legs_are_centred_on_the_stand_at_their_height_above_it():
     assert CFG["drones"]["victim"]["hover_z"] == 1.0  # The A3 config itself is untouched
     check_design(rows, cfg)
     with pytest.raises(ValueError, match="arena_max_z"):
-        a3_stand.stand_flight(CFG, FLIGHT_1, STAND + [0.0, 0.0, 0.5])
+        a3_stand.stand_flight(CFG, FLIGHT_1, STAND + [0.0, 0.0, 0.9])  # 0.5 m pass at 2.93 m
 
 
 def test_an_off_centre_stand_leaves_the_passes_no_room():
@@ -135,7 +142,7 @@ def test_the_source_lands_clear_of_the_stand():
     cfg, _ = a3_stand.stand_flight(CFG, FLIGHT_1, STAND)
     assert a3_stand.landing_waypoints(STAND + [1.5, 0.0, 0.4], STAND, cfg) == []
     climb, lane = a3_stand.landing_waypoints(STAND + [0.1, 0.0, 0.3], STAND, cfg)
-    assert climb[2] == pytest.approx(STAND[2] + max(CFG["a3"]["height_seps"]))
+    assert climb[2] == pytest.approx(STAND[2] + max(CFG["stand"]["height_seps"]))
     assert lane[1] == pytest.approx(STAND[1] + CFG["a3"]["return_lane"])
     assert np.linalg.norm(lane[:2] - STAND[:2]) > cfg["stand"]["clearance"]
 
@@ -143,7 +150,7 @@ def test_the_source_lands_clear_of_the_stand():
 def test_the_separation_rule_holds_over_the_stand():
     limits = SafetyLimits.from_config(a3_stand.stand_flight(CFG, FLIGHT_1, STAND)[0])
     stand = {"pos": STAND, "is_outdated": False}
-    low = STAND + [0.1, 0.0, 0.2]
+    low = STAND + [0.1, 0.0, 0.1]  # Below min_vertical_sep, 0.15 m
     reason = safety_violation(limits, {"pos": low, "is_outdated": False}, low, stand, STAND)
     assert reason is not None and reason.startswith("separation")
     high = STAND + [0.1, 0.0, 0.4]
@@ -197,7 +204,7 @@ def run_schedule(
     victim: FakeVictim, spin: bool, stand: dict | None = None
 ) -> a3_stand.VictimSchedule:
     """Play the spin schedule of three legs of flight 1 against a fast clock."""
-    _, _, schedule = stand_plan([int(r["leg"]) for r in FLIGHT_1][:3])
+    _, _, schedule = stand_plan([int(r["leg"]) for r in a3_stand.stand_rows(FLIGHT_1, CFG)][:3])
     start = time.perf_counter()
     plan = a3_stand.VictimSchedule(
         victim,

@@ -96,14 +96,25 @@ def select_legs(rows: Sequence[Mapping], legs: Sequence[int] | None) -> list[dic
     return [dict(row) for row in rows if int(row["leg"]) in legs]
 
 
+def stand_rows(rows: Sequence[Mapping], cfg: Mapping) -> list[dict]:
+    """The rows whose height separation is one the stand runs fly, `[stand] height_seps`."""
+    keep = [float(dz) for dz in cfg["stand"]["height_seps"]]
+    if unknown := [dz for dz in keep if dz not in [float(d) for d in cfg["a3"]["height_seps"]]]:
+        raise ValueError(f"[stand] height_seps {unknown} are not separations of the A3 design")
+    return [
+        dict(row) for row in rows if any(abs(float(row["height_sep"]) - dz) < 1e-6 for dz in keep)
+    ]
+
+
 def stand_flight(
     cfg: Mapping, rows: Sequence[Mapping], stand_pos: ArrayLike
 ) -> tuple[dict, list[dict]]:
     """Config and design rows of a flight centred on the victim on the stand.
 
     The victim's hover point becomes the stand position, the passes are shifted along x by its x,
-    and each pass flies `height_sep` above the stand's victim. The ceiling of the arena is the
-    stand's `arena_max_z`, since the passes fly up to 1.2 m above the stand's height.
+    and each pass flies `height_sep` above the stand's victim. Only the legs whose separation is in
+    the stand's `height_seps` are kept (at most 0.5 m, user, 21 Nov). The ceiling of the arena is the
+    stand's `arena_max_z`, since the passes fly above the stand's height.
 
     Args:
         cfg: The A3 config, with its `[stand]` section.
@@ -123,13 +134,13 @@ def stand_flight(
         cfg["stand"]["arena_max_z"],
     ]
     shifted = []
-    for row in rows:
+    for row in stand_rows(rows, cfg):
         row = dict(row)
         row["x_start"] = float(row["x_start"]) + stand_pos[0]
         row["x_end"] = float(row["x_end"]) + stand_pos[0]
         row["z_src"] = float(stand_pos[2]) + float(row["height_sep"])
         shifted.append(row)
-    top = float(stand_pos[2]) + max(cfg["a3"]["height_seps"])
+    top = float(stand_pos[2]) + max(cfg["stand"]["height_seps"])
     if top > cfg["stand"]["arena_max_z"] - CEILING_MARGIN + 1e-9:
         raise ValueError(
             f"The highest pass flies at {top:.2f} m, within {CEILING_MARGIN} m of the stand's "
@@ -308,7 +319,7 @@ def landing_waypoints(pos: ArrayLike, stand_pos: ArrayLike, cfg: Mapping) -> lis
     if np.linalg.norm(pos[:2] - stand_pos[:2]) >= cfg["stand"]["clearance"]:
         return []
     ceiling = cfg["safety"]["arena_max"][2] - CEILING_MARGIN
-    z = min(max(pos[2], stand_pos[2] + max(cfg["a3"]["height_seps"])), ceiling)
+    z = min(max(pos[2], stand_pos[2] + max(cfg["stand"]["height_seps"])), ceiling)
     lane = np.array([pos[0], stand_pos[1] + cfg["a3"]["return_lane"], z])
     return [np.array([pos[0], pos[1], z]), lane]
 
