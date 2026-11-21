@@ -218,6 +218,13 @@ Terminals as for A3, the motion capture and the source's estimator (the victim n
 stand must sit within 0.06 m of x = 0: the 1.4 m/s passes span ±2.14 m and the arena allows
 ±2.2 m, which the dry run checks. The source stands at least 0.5 m from the stand.
 
+Before each run, `battery.py` reads both batteries at rest without rebooting the drones and
+compares them with the limits of the runs (`--watch` repeats it every 2 s):
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/battery.py
+```
+
 ```bash
 # Plan first: --stand-pos and --source-pos stand in for the motion capture
 pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin \
