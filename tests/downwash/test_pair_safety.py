@@ -13,6 +13,7 @@ module_requires_env("sim2real")
 import copy  # noqa: E402
 import json  # noqa: E402
 import pickle  # noqa: E402
+import signal  # noqa: E402
 import threading  # noqa: E402
 from collections import deque  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -315,6 +316,37 @@ def test_operator_ends_the_flight(cfg: dict, clock: FakeClock, monkeypatch: pyte
     assert len(flight.records) == 300
 
 
+def ctrl_c_after(drone: FakeDrone, n_setpoints: int):
+    """Press Ctrl+C, a real SIGINT, right after the drone's `n_setpoints`-th setpoint."""
+    send, calls = drone.send_state, iter(range(1, 1_000_000))
+
+    def send_then_ctrl_c(*args: object):
+        send(*args)
+        if next(calls) == n_setpoints:
+            signal.raise_signal(signal.SIGINT)
+
+    drone.send_state = send_then_ctrl_c
+
+
+def test_ctrl_c_ends_the_flight_and_keeps_its_records(
+    cfg: dict, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+):
+    """Ctrl+C raised inside `run_flight` and lost every leg of A3 F1 (19 Nov)."""
+    battery(monkeypatch, 4.0)
+    rows = single_leg(cfg, 1.0, 0.8)
+    victim, source = drones_at_start(cfg, rows)
+    ctrl_c_after(source, 300)
+    before = signal.getsignal(signal.SIGINT)
+    with pair.ctrl_c_ends_flight():
+        flight = pair.run_flight(victim, source, rows, cfg)
+        with pytest.raises(KeyboardInterrupt):  # A second Ctrl+C raises as usual
+            signal.raise_signal(signal.SIGINT)
+    assert flight.abort_reason == "operator: Ctrl+C"
+    assert len(flight.records) == 300
+    assert signal.getsignal(signal.SIGINT) is before
+    assert not pair.operator_stopped()  # The next flight starts afresh
+
+
 def test_source_flies_alone(cfg: dict, clock: FakeClock, monkeypatch: pytest.MonkeyPatch):
     battery(monkeypatch, None)  # Never read: without a victim there is no battery check
     rows = single_leg(cfg, 1.4, 0.4)
@@ -583,9 +615,9 @@ def test_deploy_flies_lands_and_records(
     deploy_a3.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
     meta = flight_meta(env.folder)
     assert meta["abort_reason"] is None and meta["error"] is None
-    assert meta["usd"]["victim"]["files"] == ["cf3_00"]
-    assert {"timeline", "leg_stats", "leg_flags", "t_wall_zero"} <= set(meta)
     vic, src = (f"cf{env.cfg['drones'][role]['id']}" for role in ("victim", "source"))
+    assert meta["usd"]["victim"]["files"] == [f"{vic}_00"]
+    assert {"timeline", "leg_stats", "leg_flags", "t_wall_zero"} <= set(meta)
     assert env.sd_calls == [("start", vic), ("start", src), ("stop", vic), ("stop", src)]
     for drone in (env.victim, env.source):
         names = drone.names()
@@ -603,6 +635,31 @@ def test_deploy_lands_both_when_a_drone_did_not_arm(deploy_env: SimpleNamespace)
     meta = flight_meta(env.folder)
     assert meta["abort_reason"].startswith("arming: the victim cannot fly")
     assert [call[0] for call in env.sd_calls].count("stop") == 2  # The SD files are closed
+    for drone in (env.victim, env.source):
+        names = drone.names()
+        assert names.count("land") == 1 and names.index("land") < names.index("close")
+
+
+def test_deploy_lands_and_keeps_the_legs_on_ctrl_c(
+    deploy_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+):
+    """Ctrl+C in the legs lands both and writes the records and timeline the conversion needs."""
+    battery(monkeypatch, 4.0)
+    env = deploy_env
+    run = pair.run_flight
+
+    def run_with_ctrl_c(victim: FakeDrone, source: FakeDrone, rows: list, cfg: dict) -> pair.Flight:
+        ctrl_c_after(source, 300)
+        return run(victim, source, rows, cfg)
+
+    monkeypatch.setattr(pair, "run_flight", run_with_ctrl_c)
+    deploy_a3.fly(env.rows, env.cfg, 1, False, Path("design.csv"))
+    meta = flight_meta(env.folder)
+    assert meta["abort_reason"] == "operator: Ctrl+C" and meta["error"] is None
+    assert "timeline" in meta
+    with open(next(env.folder.glob("flight1_*/records.pkl")), "rb") as f:
+        assert len(pickle.load(f)["flight"]) == 300
+    assert [call[0] for call in env.sd_calls].count("stop") == 2
     for drone in (env.victim, env.source):
         names = drone.names()
         assert names.count("land") == 1 and names.index("land") < names.index("close")
