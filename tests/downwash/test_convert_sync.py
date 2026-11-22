@@ -199,7 +199,8 @@ def test_derive_finds_the_crossing_and_the_phases():
     cfg = load_config(require_masses=False)
     a3 = cfg["a3"]
     row = build_design(cfg, single=(1.0, 0.8))[0][0]
-    p_start, p_end = np.array([row["x_start"], 0.0, 1.8]), np.array([row["x_end"], 0.0, 1.8])
+    z = victim_hover_point(cfg)[2] + 0.8
+    p_start, p_end = np.array([row["x_start"], 0.0, z]), np.array([row["x_end"], 0.0, z])
     segment = Pass(p_start, p_end, 1.0, a3["ramp"])
     t = np.arange(0.0, a3["hover_time"] + segment.duration + a3["pause_time"], 0.002)
     pos, vel, _ = segment.evaluate(np.clip(t - a3["hover_time"], 0.0, segment.duration))

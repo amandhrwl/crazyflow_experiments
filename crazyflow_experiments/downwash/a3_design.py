@@ -1,8 +1,12 @@
 """Leg table of block A3: flyover passes of the source over the hovering victim.
 
-The nine cells, three height separations by three speeds, are flown once per flight in three
-flights. Flight 1 is the shakedown order, from the far wake to the close passes: height separation
-descending, speed ascending within each height. Flights 2 and 3 are shuffles seeded with `seed`.
+The cells, every height separation by every speed, are flown `repeats` times. Each repeat is split
+into flights of `legs_per_flight` legs, consecutive cells in the shakedown order, so a flight holds
+whole heights (four speeds each): with 4 heights and 4 speeds, 8 legs, the far pair of heights
+first, then the near pair, and the stand, which flies only the near heights, takes one flight per
+repeat. The first repeat is the shakedown order, from the far wake to the close passes: height
+separation descending, speed ascending within each height. The later repeats shuffle the cells of
+each flight, seeded with `seed`.
 Every leg flies from -x to +x; after the wait at its end point the source flies back to the next
 start point through the return lane, `return_lane` to the side of the victim, clear of its wake.
 
@@ -215,19 +219,29 @@ def x_limit(cfg: Mapping) -> float:
 
 
 def max_speed(cfg: Mapping) -> float:
-    """Fastest speed whose pass fits the arena with `x_margin`, floored to 0.1 m/s."""
+    """Fastest speed whose pass fits the arena with `x_margin`, floored to 0.1 m/s.
+
+    `[a3] max_speed`, if set, caps it: the campaign flies up to 2 m/s however much room there is.
+    """
     a3 = cfg["a3"]
     room = x_limit(cfg) - cfg["safety"]["x_margin"] - a3["cruise_half"]
-    return math.floor(room / (a3["settle_time"] + a3["ramp"] / 2) * 10 + 1e-9) / 10
+    fits = math.floor(room / (a3["settle_time"] + a3["ramp"] / 2) * 10 + 1e-9) / 10
+    return min(fits, a3.get("max_speed", math.inf))
 
 
-def load_config(path: Path = CONFIG_PATH, require_masses: bool = True) -> dict:
+def load_config(
+    path: Path = CONFIG_PATH,
+    require_masses: bool = True,
+    mass_roles: Sequence[str] = ("victim", "source"),
+) -> dict:
     """Load the experiment config, append `v_max` to the speeds and validate it.
 
     Args:
         path: The config file.
         require_masses: Require the weighed masses. Planning works without them, flying and the
             conversion do not.
+        mass_roles: The drones whose mass is required, those that fly: the source alone with the
+            victim on the stand or on the ground.
 
     Returns:
         The config, with `a3.v_max` set and appended to `a3.speeds`.
@@ -241,11 +255,13 @@ def load_config(path: Path = CONFIG_PATH, require_masses: bool = True) -> dict:
         raise ValueError(f"The configured speeds {a3['speeds']} must stay below v_max = {v_max}")
     a3["v_max"] = v_max
     a3["speeds"] = [*a3["speeds"], v_max]
-    check_config(cfg, require_masses)
+    check_config(cfg, require_masses, mass_roles)
     return cfg
 
 
-def check_config(cfg: Mapping, require_masses: bool = True):
+def check_config(
+    cfg: Mapping, require_masses: bool = True, mass_roles: Sequence[str] = ("victim", "source")
+):
     """Validate the static parts of the config, see `load_config`."""
     a3, safety, drones = cfg["a3"], cfg["safety"], cfg["drones"]
     model = drones["model"]
@@ -264,6 +280,11 @@ def check_config(cfg: Mapping, require_masses: bool = True):
             f"return_lane = {a3['return_lane']} m would fly the source back within {clearance:.3f} m"
             " of the victim, inside its wake footprint or the separation guard"
         )
+    n_cells = len(a3["height_seps"]) * len(a3["speeds"])
+    if n_cells % a3.get("legs_per_flight", n_cells):
+        raise ValueError(
+            f"legs_per_flight = {a3['legs_per_flight']} does not divide the {n_cells} cells"
+        )
     z_top = drones["victim"]["hover_z"] + max(a3["height_seps"])
     if z_top > safety["arena_max"][2] - CEILING_MARGIN + 1e-9:
         raise ValueError(f"The source would fly at {z_top} m, too close to the arena ceiling")
@@ -274,7 +295,7 @@ def check_config(cfg: Mapping, require_masses: bool = True):
                 "of crazyflow's rpm2thrust, expected close to 1"
             )
     if require_masses:
-        for role in ("victim", "source"):
+        for role in mass_roles:
             if drones[role]["mass_kg"] <= 0:
                 raise ValueError(f"Weigh the {role} and fill in drones.{role}.mass_kg")
 
@@ -285,20 +306,34 @@ def design_cells(cfg: Mapping) -> list[tuple[float, float]]:
     return [(dz, v) for dz in sorted(a3["height_seps"], reverse=True) for v in sorted(a3["speeds"])]
 
 
-def flight_orders(n_cells: int, repeats: int, seed: int) -> list[list[int]]:
+def flight_orders(
+    n_cells: int, repeats: int, seed: int, legs_per_flight: int | None = None
+) -> list[list[int]]:
     """Cell order of every flight: the shakedown order, then seeded shuffles.
 
+    Each repeat of the cells is cut into consecutive chunks of `legs_per_flight` cells, one flight
+    each. The first repeat keeps the order, later ones shuffle the cells inside every chunk.
+
     Args:
-        n_cells: Number of cells.
-        repeats: Number of flights, one repeat of every cell each.
+        n_cells: Number of cells, in the shakedown order.
+        repeats: Number of repeats of every cell.
         seed: Seed of the shuffles.
+        legs_per_flight: Legs of a flight, a divisor of `n_cells`; all cells in one flight by
+            default.
 
     Returns:
-        The orders.
+        The orders, `repeats` times `n_cells / legs_per_flight` flights.
     """
+    size = legs_per_flight or n_cells
+    if n_cells % size:
+        raise ValueError(f"{size} legs per flight do not divide {n_cells} cells")
     rng = np.random.default_rng(seed)
-    shuffles = [rng.permutation(n_cells).tolist() for _ in range(repeats - 1)]
-    return [list(range(n_cells)), *shuffles]
+    orders = []
+    for repeat in range(repeats):
+        for first in range(0, n_cells, size):
+            chunk = list(range(first, first + size))
+            orders.append(chunk if repeat == 0 else [first + i for i in rng.permutation(size)])
+    return [[int(c) for c in order] for order in orders]
 
 
 def _flight_rows(
@@ -307,8 +342,9 @@ def _flight_rows(
     flight: int,
     first_leg: int,
     cfg: dict,
+    repeat: int | None = None,
 ) -> list[dict]:
-    """Rows of one flight, timed from its timeline zero."""
+    """Rows of one flight, timed from its timeline zero; `repeat` is the flight - 1 by default."""
     a3 = cfg["a3"]
     model = cfg["drones"]["model"]
     p_vic = victim_hover_point(cfg)
@@ -335,7 +371,7 @@ def _flight_rows(
                 "height_sep": height_sep,
                 "lateral_offset": a3["lateral_offset"],
                 "direction": direction,
-                "repeat": flight - 1,
+                "repeat": flight - 1 if repeat is None else repeat,
                 "half": half,
                 "D": duration,
                 "x_start": float(start[0]),
@@ -366,7 +402,7 @@ def build_design(
 
     Args:
         cfg: The config from `load_config`.
-        seed: First seed of the search, `a3.seed` by default.
+        seed: Seed of the shuffles, `a3.seed` by default.
         single: (speed, height separation) of a one-leg flight instead of the block.
 
     Returns:
@@ -379,10 +415,12 @@ def build_design(
     else:
         cells = design_cells(cfg)
         seed_used = a3["seed"] if seed is None else seed
-        orders = flight_orders(len(cells), a3["repeats"], seed_used)
+        per_flight = a3.get("legs_per_flight", len(cells))
+        orders = flight_orders(len(cells), a3["repeats"], seed_used, per_flight)
     rows: list[dict] = []
+    per_repeat = len(orders) // (1 if single is not None else a3["repeats"])
     for flight, order in enumerate(orders, start=1):
-        rows += _flight_rows(order, cells, flight, len(rows), cfg)
+        rows += _flight_rows(order, cells, flight, len(rows), cfg, (flight - 1) // per_repeat)
     return rows, seed_used
 
 

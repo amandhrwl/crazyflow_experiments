@@ -11,7 +11,7 @@ import time  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-from crazyflow_experiments.downwash import a3_stand  # noqa: E402
+from crazyflow_experiments.downwash import a3_deploy, a3_stand  # noqa: E402
 from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     build_design,
     check_design,
@@ -19,6 +19,7 @@ from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     load_config,
 )
 from crazyflow_experiments.downwash.a3_stand_convert import (  # noqa: E402
+    cell_delay_report,
     cut_leg,
     merge_runs,
     peak,
@@ -31,24 +32,23 @@ CFG = load_config(require_masses=False)
 STAND = np.array([0.0, 0.12, 1.53])  # The victim on the stand, 21 Nov
 SOURCE = np.array([-0.3, -1.0, 0.04])
 ROWS = build_design(CFG)[0]
-FLIGHT_1 = flights(ROWS)[1]
+NEAR_FLIGHT = flights(ROWS)[2]  # The stand's heights, 0.5 and 0.25 m, in the shakedown order
 
 
 def stand_plan(legs: list[int] | None = None) -> tuple[dict, list[dict], list[a3_stand.LegSpin]]:
     """The stand's config, rows and spin schedule of flight 1."""
-    cfg, rows = a3_stand.stand_flight(CFG, a3_stand.select_legs(FLIGHT_1, legs), STAND)
+    cfg, rows = a3_stand.stand_flight(CFG, a3_stand.select_legs(NEAR_FLIGHT, legs), STAND)
     _, source = build_flight(rows, cfg)
     return cfg, rows, a3_stand.spin_schedule(source, rows, CFG["stand"])
 
 
 def test_legs_are_centred_on_the_stand_at_their_height_above_it():
-    cfg, rows = a3_stand.stand_flight(CFG, FLIGHT_1, STAND)
-    originals = {int(r["leg"]): r for r in FLIGHT_1}
+    cfg, rows = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND)
+    originals = {int(r["leg"]): r for r in NEAR_FLIGHT}
     # Only the separations of [stand] height_seps fly (at most 0.5 m, user, 21 Nov)
     assert sorted({float(r["height_sep"]) for r in rows}) == sorted(CFG["stand"]["height_seps"])
-    assert len(rows) == len(FLIGHT_1) * len(CFG["stand"]["height_seps"]) // len(
-        CFG["a3"]["height_seps"]
-    )
+    assert len(rows) == len(NEAR_FLIGHT) == 8  # Every leg of the near flight is a stand leg
+    assert len(a3_stand.stand_rows(flights(ROWS)[1], CFG)) == 0  # The far flight has none
     for row in rows:
         original = originals[int(row["leg"])]
         assert row["x_start"] == pytest.approx(original["x_start"] + STAND[0])
@@ -56,15 +56,22 @@ def test_legs_are_centred_on_the_stand_at_their_height_above_it():
     assert cfg["drones"]["victim"]["hover_xy"] == pytest.approx(STAND[:2].tolist())
     assert cfg["drones"]["victim"]["hover_z"] == pytest.approx(STAND[2])
     assert cfg["safety"]["arena_max"][2] == CFG["stand"]["arena_max_z"]
-    assert CFG["drones"]["victim"]["hover_z"] == 1.0  # The A3 config itself is untouched
+    assert CFG["drones"]["victim"]["hover_z"] == 0.8  # The A3 config itself is untouched
     check_design(rows, cfg)
     with pytest.raises(ValueError, match="arena_max_z"):
-        a3_stand.stand_flight(CFG, FLIGHT_1, STAND + [0.0, 0.0, 0.9])  # 0.5 m pass at 2.93 m
+        a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND + [0.0, 0.0, 0.9])  # 0.5 m pass at 2.93 m
+
+
+def test_a_flight_without_stand_legs_is_refused_with_a_reason():
+    far = flights(ROWS)[1]  # 1.0 and 0.75 m, no separation of the stand
+    with pytest.raises(ValueError, match="near flights"):
+        a3_deploy.plan_stand(CFG, far, STAND, SOURCE, None)
+    a3_deploy.plan_stand(CFG, NEAR_FLIGHT, STAND, SOURCE, None)
 
 
 def test_an_off_centre_stand_leaves_the_passes_no_room():
-    """The 1.4 m/s passes span ±2.14 m, the arena ±2.2 m after its margin."""
-    cfg, rows = a3_stand.stand_flight(CFG, FLIGHT_1, STAND + [0.3, 0.0, 0.0])
+    """The 2 m/s passes span ±2.8 m, the arena ±3.2 m after its margin."""
+    cfg, rows = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND + [0.5, 0.0, 0.0])
     with pytest.raises(ValueError, match="leaves the arena"):
         check_design(rows, cfg)
 
@@ -79,10 +86,10 @@ def test_legs_parse_and_select():
     assert a3_stand.parse_legs("3,5-7") == [3, 5, 6, 7]
     with pytest.raises(ValueError):
         a3_stand.parse_legs("3,3")
-    legs = [int(r["leg"]) for r in FLIGHT_1]
-    assert [r["leg"] for r in a3_stand.select_legs(FLIGHT_1, legs[2:4])] == legs[2:4]
+    legs = [int(r["leg"]) for r in NEAR_FLIGHT]
+    assert [r["leg"] for r in a3_stand.select_legs(NEAR_FLIGHT, legs[2:4])] == legs[2:4]
     with pytest.raises(ValueError, match="not in this flight"):
-        a3_stand.select_legs(FLIGHT_1, [999])
+        a3_stand.select_legs(NEAR_FLIGHT, [999])
 
 
 def steady(command: int, force: float, ok: bool = True, uniform: bool = True) -> dict:
@@ -125,21 +132,21 @@ def test_the_spin_windows_fit_every_leg_and_follow_each_other():
 
 
 def test_a_schedule_that_overlaps_the_next_leg_is_refused():
-    cfg, rows = a3_stand.stand_flight(CFG, FLIGHT_1, STAND)
+    cfg, rows = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND)
     _, source = build_flight(rows, cfg)
     with pytest.raises(ValueError, match="rest_gap_s|tare"):
         a3_stand.spin_schedule(source, rows, CFG["stand"] | {"rest_gap_s": 60.0})
 
 
 def test_a_subset_of_legs_plans_on_its_own():
-    legs = [int(r["leg"]) for r in FLIGHT_1][4:6]
+    legs = [int(r["leg"]) for r in NEAR_FLIGHT][4:6]
     cfg, rows, schedule = stand_plan(legs)
     assert [leg.leg for leg in schedule] == legs
     check_design(rows, cfg)
 
 
 def test_the_source_lands_clear_of_the_stand():
-    cfg, _ = a3_stand.stand_flight(CFG, FLIGHT_1, STAND)
+    cfg, _ = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND)
     assert a3_stand.landing_waypoints(STAND + [1.5, 0.0, 0.4], STAND, cfg) == []
     climb, lane = a3_stand.landing_waypoints(STAND + [0.1, 0.0, 0.3], STAND, cfg)
     assert climb[2] == pytest.approx(STAND[2] + max(CFG["stand"]["height_seps"]))
@@ -148,7 +155,7 @@ def test_the_source_lands_clear_of_the_stand():
 
 
 def test_the_separation_rule_holds_over_the_stand():
-    limits = SafetyLimits.from_config(a3_stand.stand_flight(CFG, FLIGHT_1, STAND)[0])
+    limits = SafetyLimits.from_config(a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND)[0])
     stand = {"pos": STAND, "is_outdated": False}
     low = STAND + [0.1, 0.0, 0.1]  # Below min_vertical_sep, 0.15 m
     reason = safety_violation(limits, {"pos": low, "is_outdated": False}, low, stand, STAND)
@@ -203,8 +210,8 @@ SPEED = 50.0  # The schedule's clock runs this much faster than real time
 def run_schedule(
     victim: FakeVictim, spin: bool, stand: dict | None = None
 ) -> a3_stand.VictimSchedule:
-    """Play the spin schedule of three legs of flight 1 against a fast clock."""
-    _, _, schedule = stand_plan([int(r["leg"]) for r in a3_stand.stand_rows(FLIGHT_1, CFG)][:3])
+    """Play the spin schedule of three legs of flight 2 against a fast clock."""
+    _, _, schedule = stand_plan([int(r["leg"]) for r in a3_stand.stand_rows(NEAR_FLIGHT, CFG)][:3])
     start = time.perf_counter()
     plan = a3_stand.VictimSchedule(
         victim,
@@ -268,47 +275,108 @@ def test_peak_and_rpm_drift():
     assert np.isnan(rpm_drift(t, np.zeros_like(rpm), (-2.0, -1.0), (0.5, 1.5))).all()
 
 
-def test_a_leg_is_zeroed_on_its_tare_and_compared_with_its_baseline():
-    """A synthetic spin leg: thrust from rpm 0.53 N, the wake takes 10 mN of it at the crossing."""
+T_ZERO, CROSS = 1000.0, 50.0  # Run clock zero and the timeline's crossing of the synthetic leg
+SOURCE_LAG = 0.35  # s the synthetic source crosses the stand after its timeline says
+CELL_DELAY = 0.04  # s the synthetic load cell follows the rotor thrust
+SPIN = {"cross": CROSS, "pass_start": CROSS - 2.0, "pass_end": CROSS + 2.0, "spin_off": CROSS + 3.5}
+EVENTS = {"tare_start": 1040.0, "tare_end": 1042.0, "spin_on": 1043.5, "spin_off": 1053.5}
+
+
+def synthetic_leg(mode: str = "spin", crosses: bool = True) -> tuple[dict, dict, dict]:
+    """A leg's run, design row and outcome: thrust 0.53 N from rpm, the wake takes 10 mN of it.
+
+    The source passes the stand at 1 m/s `SOURCE_LAG` after the timeline's crossing, 0.02 m to its
+    side and 0.8 m above it, and the load cell follows the thrust `CELL_DELAY` late. The dip lies
+    0.2 s after the measured crossing. A still leg has no thrust, only 300 rpm of windmilling with
+    every fifth reading invalid.
+    """
     stand = CFG["stand"]
-    t_zero, cross = 1000.0, 50.0
-    spin = {
-        "cross": cross,
-        "pass_start": cross - 2.0,
-        "pass_end": cross + 2.0,
-        "spin_off": cross + 3.5,
-    }
-    events = {"tare_start": 1040.0, "tare_end": 1042.0, "spin_on": 1043.5, "spin_off": 1053.5}
     t = np.arange(1039.0, 1055.0, 1 / 500)
-    spinning = (t >= events["spin_on"]) & (t < events["spin_off"])
-    dip = -0.010 * np.exp(-(((t - (t_zero + cross + 0.2)) / 0.2) ** 2))
+    t_cross = T_ZERO + CROSS + SOURCE_LAG
+    spinning = (mode == "spin") & (t >= EVENTS["spin_on"]) & (t < EVENTS["spin_off"])
+    dip = -0.010 * np.exp(-(((t - (t_cross + 0.2)) / 0.2) ** 2))
     thrust = np.where(spinning, 0.53, 0.0)
-    force_n = thrust + dip * spinning
+    force_n = np.interp(t - CELL_DELAY, t, thrust) + dip * spinning
+    rpm = np.tile(np.where(spinning, 18000.0, 300.0)[:, None], (1, 4))
+    if mode == "still":
+        rpm[::5] = np.nan
+    pos = np.tile(STAND + [0.0, 0.02, 0.8], (len(t), 1))
+    vel = np.zeros((len(t), 3))
+    if crosses:
+        pos[:, 0] = STAND[0] + 1.0 * (t - t_cross)
+        vel[:, 0] = 1.0
     run = {
-        "meta": {"config": {"stand": stand}, "mode": "spin", "stand_pos": STAND.tolist()},
+        "meta": {
+            "config": {"stand": stand, "a3": CFG["a3"]},
+            "mode": mode,
+            "stand_pos": STAND.tolist(),
+        },
         "t": t,
         "weight_g": 120.0 + force_n / 9.81 * 1e3,  # The tare's zero, 120 g, drops out
-        "rpm": np.tile(np.where(spinning, 18000.0, 0.0)[:, None], (1, 4)),
+        "rpm": rpm,
         "thrust_rpm": thrust,
         "vbat": np.full(len(t), 3.8),
-        "t_zero": t_zero,
+        "t_zero": T_ZERO,
         "src_t": t,
-        "src_pos": np.tile(STAND + [0.0, 0.0, 0.8], (len(t), 1)),
-        "src_vel": np.zeros((len(t), 3)),
+        "src_pos": pos,
+        "src_vel": vel,
     }
     row = {k: 0 for k in ("leg", "flight", "index_in_flight", "cell", "repeat")}
     row |= {"speed": 1.0, "height_sep": 0.8}
-    arrays, summary = cut_leg(run, row, spin, {"events": events, "spun": True})
+    return run, row, {"events": EVENTS, "spun": mode == "spin"}
+
+
+def test_a_leg_is_zeroed_on_its_tare_and_compared_with_its_baseline():
+    run, row, outcome = synthetic_leg()
+    arrays, summary = cut_leg(run, row, SPIN, outcome)
     assert summary["status"] == "ok" and summary["tare_g"] == pytest.approx(120.0)
     assert summary["baseline_force_N"] == pytest.approx(0.53, abs=1e-4)
     assert summary["peak_dforce_N"] == pytest.approx(-0.010, rel=0.1)
-    assert summary["t_peak_s"] == pytest.approx(0.2, abs=0.02)
+    assert summary["t_peak_s"] == pytest.approx(0.2, abs=0.02)  # From the measured crossing
     assert summary["peak_dforce_wake_N"] == pytest.approx(-0.010, rel=0.1)  # rpm held
     assert np.nanmax(np.abs(arrays["dthrust_rpm"])) == pytest.approx(0.0, abs=1e-9)
     assert arrays["t"][0] == pytest.approx(
-        events["spin_on"] + stand["spin_settle_s"] - t_zero - cross
+        EVENTS["spin_on"] + CFG["stand"]["spin_settle_s"] - T_ZERO - CROSS - SOURCE_LAG
     )
-    assert np.allclose(arrays["src_pos_rel"], [0.0, 0.0, 0.8])
+    assert np.allclose(arrays["src_pos_rel"][:, 1:], [0.02, 0.8], atol=1e-6)
+
+
+def test_the_crossing_is_the_measured_one_not_the_timelines():
+    run, row, outcome = synthetic_leg()
+    _, summary = cut_leg(run, row, SPIN, outcome)
+    assert summary["cross_nominal_s"] == pytest.approx(CROSS)
+    assert summary["cross_s"] == pytest.approx(CROSS + SOURCE_LAG, abs=0.01)
+    assert summary["cross_lag_s"] == pytest.approx(SOURCE_LAG, abs=0.01)
+    assert summary["cross_speed"] == pytest.approx(1.0)
+    assert summary["height_sep_meas"] == pytest.approx(0.8)
+    assert summary["lateral_offset_meas"] == pytest.approx(0.02)
+
+
+def test_a_source_that_never_passes_the_stand_flags_the_leg():
+    run, row, outcome = synthetic_leg(crosses=False)
+    arrays, summary = cut_leg(run, row, SPIN, outcome)
+    assert summary["status"] == "no_crossing" and np.isnan(summary["cross_lag_s"])
+    # Still aligned on the timeline's crossing
+    assert arrays["t"][0] == pytest.approx(
+        EVENTS["spin_on"] + CFG["stand"]["spin_settle_s"] - T_ZERO - CROSS
+    )
+
+
+def test_the_load_cell_delay_is_read_off_the_spin_up():
+    run, row, outcome = synthetic_leg()
+    _, summary = cut_leg(run, row, SPIN, outcome)
+    assert summary["cell_delay_s"] == pytest.approx(CELL_DELAY, abs=0.005)
+    report = cell_delay_report([summary, summary | {"leg": 1, "cell_delay_s": 0.06}])
+    assert report["n"] == 2 and report["median_s"] == pytest.approx(0.05, abs=0.005)
+
+
+def test_a_still_leg_reports_the_windmilling_and_no_delay():
+    run, row, outcome = synthetic_leg("still")
+    _, summary = cut_leg(run, row, SPIN, outcome)
+    assert summary["status"] == "ok" and np.isnan(summary["cell_delay_s"])
+    assert summary["rpm_pass_mean"] == pytest.approx(300.0)
+    assert summary["rpm_pass_valid"] == pytest.approx(0.8, abs=0.01)
+    assert cell_delay_report([summary])["n"] == 0
 
 
 def test_runs_merge_keeping_every_ok_repeat():

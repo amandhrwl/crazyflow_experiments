@@ -595,6 +595,11 @@ def plan_stand(
     """The stand's config, rows and spin schedule of a flight, checked against every limit."""
     rows = a3_stand.select_legs(rows, legs)
     flown = {int(row["leg"]) for row in a3_stand.stand_rows(rows, cfg)}
+    if not flown:
+        raise ValueError(
+            f"No leg of this flight is at a separation the stand flies, [stand] height_seps "
+            f"{cfg['stand']['height_seps']}: fly the near flights (even numbers) on the stand"
+        )
     if legs is not None and (other := sorted(set(legs) - flown)):
         raise ValueError(
             f"Legs {other} fly at a separation the stand skips, [stand] height_seps "
@@ -648,7 +653,8 @@ def main():
     args = parser.parse_args()
     if (args.spin or args.legs or args.stand_pos) and not args.stand:
         raise ValueError("--spin, --legs and --stand-pos go with --stand")
-    cfg = load_config(require_masses=not args.dry_run)
+    flying = ("source",) if args.stand or args.only_source else ("victim", "source")
+    cfg = load_config(require_masses=not args.dry_run, mass_roles=flying)
     rows_all = read_design(args.design)
     check_design(rows_all, cfg)
     grouped = flights(rows_all)

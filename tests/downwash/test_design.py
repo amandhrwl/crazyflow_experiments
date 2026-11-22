@@ -59,15 +59,18 @@ def write_config(tmp_path: Path, **sections: dict) -> Path:
     return path
 
 
-def test_v_max_follows_from_the_arena(cfg: dict):
+def test_v_max_is_the_arenas_limit_capped_at_max_speed(cfg: dict, tmp_path: Path):
     a3 = cfg["a3"]
-    assert a3["v_max"] == 1.4  # floor((2.5 - 0.3 - 0.6) / (0.6 + 0.5)) to 0.1 m/s
-    assert a3["speeds"] == [0.5, 1.0, 1.4]
+    assert a3["v_max"] == 2.0  # max_speed; the arena's own is floor((3.5 - 0.3 - 0.6) / 1.1) = 2.3
+    assert a3["speeds"] == [0.5, 1.0, 1.5, 2.0]
+    uncapped = load_config(write_config(tmp_path, a3={"max_speed": 9.0}), require_masses=False)
+    assert uncapped["a3"]["v_max"] == 2.3
+    assert uncapped["a3"]["speeds"] == [0.5, 1.0, 1.5, 2.3]
 
 
-def test_pass_geometry_of_the_three_speeds(cfg: dict):
+def test_pass_geometry_of_the_four_speeds(cfg: dict):
     a3 = cfg["a3"]
-    expected = {0.5: (1.15, 5.6), 1.0: (1.70, 4.4), 1.4: (2.14, 4.057)}
+    expected = {0.5: (1.15, 5.6), 1.0: (1.70, 4.4), 1.5: (2.25, 4.0), 2.0: (2.80, 3.8)}
     for speed, (half, duration) in expected.items():
         assert pass_half(speed, a3) == pytest.approx(half)
         assert pass_duration(speed, a3) == pytest.approx(duration, abs=1e-3)
@@ -86,27 +89,42 @@ def test_jet_model_reproduces_the_a3_numbers():
         assert math.degrees(cruise_tilt(speed)) == pytest.approx(tilt, abs=0.05)
 
 
-def test_block_has_27_legs_each_cell_once_per_flight(cfg: dict, design: list[dict]):
-    assert len(design) == 27
-    assert [row["leg"] for row in design] == list(range(27))
+def test_block_has_48_legs_in_six_flights_each_cell_once_per_repeat(cfg: dict, design: list[dict]):
+    assert len(design) == 48
+    assert [row["leg"] for row in design] == list(range(48))
     cells = design_cells(cfg)
-    flights_of_cell = defaultdict(list)
+    assert len(cells) == 16
+    repeats_of_cell = defaultdict(list)
     for row in design:
-        flights_of_cell[row["cell"]].append(row["flight"])
+        repeats_of_cell[row["cell"]].append(row["repeat"])
         assert (row["height_sep"], row["speed"]) == cells[row["cell"]]
-    assert sorted(flights_of_cell) == list(range(9))
-    for cell, flown in flights_of_cell.items():
-        assert sorted(flown) == [1, 2, 3], f"cell {cell} is not flown once on every flight"
+    assert sorted(repeats_of_cell) == list(range(16))
+    for cell, repeats in repeats_of_cell.items():
+        assert sorted(repeats) == [0, 1, 2], f"cell {cell} is not flown once per repeat"
+    assert sorted(flights(design)) == [1, 2, 3, 4, 5, 6]
     for flight, rows in flights(design).items():
-        assert len(rows) == 9
-        assert [row["repeat"] for row in rows] == [flight - 1] * 9
+        assert len(rows) == 8
+        assert {row["repeat"] for row in rows} == {(flight - 1) // 2}
 
 
-def test_flight_one_is_the_shakedown_order(design: list[dict]):
-    rows = flights(design)[1]
-    order = [(row["height_sep"], row["speed"]) for row in rows]
+def test_every_flight_holds_whole_heights_the_stand_flies_every_second(
+    cfg: dict, design: list[dict]
+):
+    """A far flight (1.0 and 0.75 m) then a near one (0.5 and 0.25 m) per repeat."""
+    stand = set(cfg["stand"]["height_seps"])
+    for flight, rows in flights(design).items():
+        heights = {row["height_sep"] for row in rows}
+        assert heights == ({0.5, 0.25} if flight % 2 == 0 else {1.0, 0.75})
+        assert (heights <= stand) == (flight % 2 == 0)
+        assert Counter(row["speed"] for row in rows) == {0.5: 2, 1.0: 2, 1.5: 2, 2.0: 2}
+
+
+def test_flights_one_and_two_are_the_shakedown_order(design: list[dict]):
+    first, second = flights(design)[1], flights(design)[2]
+    order = [(row["height_sep"], row["speed"]) for row in [*first, *second]]
     assert order == sorted(order, key=lambda cell: (-cell[0], cell[1]))
-    assert [row["height_sep"] for row in rows] == [0.8] * 3 + [0.5] * 3 + [0.25] * 3
+    assert [row["height_sep"] for row in first] == [1.0] * 4 + [0.75] * 4
+    assert [row["height_sep"] for row in second] == [0.5] * 4 + [0.25] * 4
 
 
 def test_legs_fly_plus_x_and_chain(cfg: dict, design: list[dict]):
@@ -117,7 +135,9 @@ def test_legs_fly_plus_x_and_chain(cfg: dict, design: list[dict]):
             assert row["direction"] == 1
             assert row["x_start"] == pytest.approx(-row["half"])
             assert row["x_end"] == pytest.approx(row["half"])
-            assert row["z_src"] == pytest.approx(1.0 + row["height_sep"])
+            assert row["z_src"] == pytest.approx(
+                cfg["drones"]["victim"]["hover_z"] + row["height_sep"]
+            )
         assert rows[0]["move_time"] == 0.0
         for prev, row in zip(rows, rows[1:]):
             assert row["move_time"] >= 3 * cfg["a3"]["min_move_time"]
@@ -147,10 +167,19 @@ def test_settled_windows(cfg: dict, design: list[dict]):
 
 
 def test_flight_orders(cfg: dict):
-    orders = flight_orders(9, 3, cfg["a3"]["seed"])
+    seed = cfg["a3"]["seed"]
+    orders = flight_orders(9, 3, seed)  # One flight per repeat
     assert orders[0] == list(range(9))
     assert all(sorted(order) == list(range(9)) for order in orders)
-    assert flight_orders(9, 3, cfg["a3"]["seed"]) == orders  # The seed reproduces the design
+    assert flight_orders(9, 3, seed) == orders  # The seed reproduces the design
+    split = flight_orders(16, 3, seed, 8)  # Each repeat in two flights of whole chunks
+    assert split[:2] == [list(range(8)), list(range(8, 16))]
+    for k, order in enumerate(split):
+        first = 8 * (k % 2)
+        assert sorted(order) == list(range(first, first + 8))
+    assert split[2] != list(range(8)) and flight_orders(16, 3, seed, 8) == split
+    with pytest.raises(ValueError, match="divide"):
+        flight_orders(16, 3, seed, 6)
 
 
 def test_csv_round_trip(tmp_path: Path, design: list[dict]):
@@ -168,19 +197,19 @@ def test_single_leg_is_the_first_flyover(cfg: dict):
     assert seed is None
     assert len(rows) == 1
     row = rows[0]
-    assert (row["half"], row["D"], row["z_src"]) == pytest.approx((1.7, 4.4, 1.5))
+    assert (row["half"], row["D"], row["z_src"]) == pytest.approx((1.7, 4.4, 1.3))
     assert row["arrival_s"] == pytest.approx(0.116, abs=5e-4)
     check_design(rows, cfg)
 
 
 def test_makeup_flight_repeats_the_failed_legs(cfg: dict, design: list[dict]):
     """F0 (18 Nov) lost 2 of 9 legs to gaps in the source's SD log; they are flown again."""
-    legs = [22, 4, 13]
+    legs = [40, 4, 13]
     rows = build_makeup(cfg, design, legs)
     by_leg = {row["leg"]: row for row in design}
     assert [row["leg"] for row in rows] == legs
     assert [row["index_in_flight"] for row in rows] == [0, 1, 2]
-    assert {row["flight"] for row in rows} == {4}
+    assert {row["flight"] for row in rows} == {7}
     for row in rows:
         original = by_leg[row["leg"]]
         for key in ("cell", "repeat", "speed", "height_sep", "half", "D", "x_start", "z_src"):
@@ -189,9 +218,9 @@ def test_makeup_flight_repeats_the_failed_legs(cfg: dict, design: list[dict]):
     for prev, row in zip(rows, rows[1:]):
         assert row["t_leg_start"] == pytest.approx(prev["t_leg_end"])
     check_design(rows, cfg)
-    assert build_makeup(cfg, rows, [4])[0]["flight"] == 5  # A make-up of the make-up
+    assert build_makeup(cfg, rows, [4])[0]["flight"] == 8  # A make-up of the make-up
     with pytest.raises(ValueError, match="not in the design"):
-        build_makeup(cfg, design, [27])
+        build_makeup(cfg, design, [48])
     with pytest.raises(ValueError, match="repeat a leg"):
         build_makeup(cfg, design, [4, 4])
 
@@ -207,6 +236,19 @@ def test_config_requires_masses_for_flying(tmp_path: Path):
     load_config(filled, require_masses=True)
 
 
+def test_only_the_drones_that_fly_need_a_mass(tmp_path: Path):
+    """The victim on the stand or on the ground has no free-flight mass, the source always one."""
+    unweighed = write_config(
+        tmp_path, **{"drones.victim": {"mass_kg": 0.0}, "drones.source": {"mass_kg": 0.046}}
+    )
+    load_config(unweighed, require_masses=True, mass_roles=("source",))
+    with pytest.raises(ValueError, match="victim"):
+        load_config(unweighed, require_masses=True)
+    no_source = write_config(tmp_path, **{"drones.source": {"mass_kg": 0.0}})
+    with pytest.raises(ValueError, match="source"):
+        load_config(no_source, require_masses=True, mass_roles=("source",))
+
+
 def test_config_requires_a_plausible_thrust_scale(tmp_path: Path):
     for scale in (0.0, 9.046):  # Unset, and a slipped decimal point
         path = write_config(tmp_path, **{"drones.source": {"thrust_scale": scale}})
@@ -214,6 +256,12 @@ def test_config_requires_a_plausible_thrust_scale(tmp_path: Path):
             load_config(path, require_masses=False)
     path = write_config(tmp_path, **{"drones.source": {"thrust_scale": 0.9046}})
     load_config(path, require_masses=False)
+
+
+def test_config_rejects_legs_per_flight_that_do_not_divide_the_cells(tmp_path: Path):
+    path = write_config(tmp_path, a3={"legs_per_flight": 6})
+    with pytest.raises(ValueError, match="legs_per_flight"):
+        load_config(path, require_masses=False)
 
 
 def test_config_rejects_a_short_arena(tmp_path: Path):
@@ -225,24 +273,24 @@ def test_config_rejects_a_short_arena(tmp_path: Path):
 
 
 def test_config_rejects_a_low_ceiling(tmp_path: Path):
-    path = write_config(tmp_path, safety={"arena_max": [2.5, 2.0, 1.8]})  # The 0.8 m pass at 1.8 m
+    path = write_config(tmp_path, safety={"arena_max": [3.5, 2.0, 1.8]})  # The 1.0 m pass at 1.8 m
     with pytest.raises(ValueError, match="ceiling"):
         load_config(path, require_masses=False)
 
 
 def test_config_rejects_a_late_wake(tmp_path: Path):
-    path = write_config(tmp_path, a3={"settle_time": 0.3})  # The wake arrives 0.20 s late at 0.8 m
+    path = write_config(tmp_path, a3={"settle_time": 0.3})  # The wake arrives 0.27 s late at 1.0 m
     with pytest.raises(ValueError, match="settle_time"):
         load_config(path, require_masses=False)
 
 
 def test_config_rejects_a_return_lane_in_the_wake(tmp_path: Path):
-    path = write_config(tmp_path, a3={"return_lane": 0.4})  # Inside the 0.41 m footprint at 1.2 m
+    path = write_config(tmp_path, a3={"return_lane": 0.4})  # Inside the 0.4 m separation guard
     with pytest.raises(ValueError, match="return_lane"):
         load_config(path, require_masses=False)
 
 
 def test_cells_cover_the_grid(cfg: dict):
     cells = design_cells(cfg)
-    assert Counter(dz for dz, _ in cells) == {0.8: 3, 0.5: 3, 0.25: 3}
-    assert Counter(v for _, v in cells) == {0.5: 3, 1.0: 3, 1.4: 3}
+    assert Counter(dz for dz, _ in cells) == {1.0: 4, 0.75: 4, 0.5: 4, 0.25: 4}
+    assert Counter(v for _, v in cells) == {0.5: 4, 1.0: 4, 1.5: 4, 2.0: 4}

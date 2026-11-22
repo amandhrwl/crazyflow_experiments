@@ -20,6 +20,22 @@ battery's sag at the fixed command is accounted for, `dthrust_rpm` its change, a
 `dforce_wake = dforce_z - dthrust_rpm` the part of the change the rotor speeds do not explain. The
 rpm drift over each pass, against the baseline, is reported as well.
 
+t = 0 is the *measured* crossing: the source's x from the flight records, which the onboard
+controller follows 0.17 s late, passes the stand's x at a time that grows with speed past the
+timeline's midpoint (`cross_nominal_s`, kept as a column, and `cross_lag_s` their difference). The
+free-flight conversion (`a3_convert.derive`) uses the measured crossing as well, so the lags of the
+two are comparable. The legs also report the measured `height_sep_meas`, `lateral_offset_meas` and
+`cross_speed` over the settled window. A leg whose source never passes the stand's x is
+`no_crossing`, its arrays aligned on the nominal crossing.
+
+The load cell lags the rotor thrust. In a spin run the rpm-predicted thrust and the load cell rise
+together at the spin-up on one card clock, so the shift that matches them (`a3_convert.lag`) is the
+delay of the cell's filter and the stand's response, `cell_delay_s` per leg and its median in
+`sync.json`. It is reported, not applied: the forces stay on the cell's own time until the tap test
+(`stand_dynamics.toml`) says how to correct them. The windmilling of the unpowered props in a still
+run shows in `rpm_pass_mean` and `rpm_pass_valid`, the mean rpm and the fraction of valid readings
+over the pass.
+
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py \
         results/downwash/a3/stand_flight<k>_<still|spin>_<time> [--calibration FILE]
@@ -42,6 +58,7 @@ import argparse
 import csv
 import json
 import logging
+import math
 import pickle
 import tomllib
 from pathlib import Path
@@ -50,7 +67,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from crazyflow_experiments.downwash import A3_RESULTS_DIR, DOWNWASH_PLOTS_DIR, plots, usd
-from crazyflow_experiments.downwash.a3_convert import lowpass, resample
+from crazyflow_experiments.downwash.a3_convert import lag, lowpass, resample
 from crazyflow_experiments.downwash.a3_stand import a1_curve
 from crazyflow_experiments.downwash.sync import LOAD_CELL_SYNC, sync_drone
 from crazyflow_experiments.downwash.thrust import rotor_thrust
@@ -70,6 +87,11 @@ MOCAP_MAX_GAP = 0.05  # s, the flight records are NaN across longer gaps
 GAP_BEFORE_CROSS = -1.0  # s, card gaps from here to GAP_AFTER_CROSS mark a leg card_gap
 GAP_AFTER_CROSS = 1.5  # s, the wake peaks within 0.6 s of the crossing (flight 1, 21 Nov)
 PEAK_CUTOFF = 10.0  # Hz, low-pass of the force change before its peak is taken, as A3's labels
+CELL_DELAY_BEFORE = 0.3  # s before the spin-on stamp where the delay fit starts
+CELL_DELAY_AFTER = 1.0  # s after it where the fit ends; the stamp follows the arming and the write
+CELL_DELAY_MAX = 0.3  # s, delays searched
+MIN_EDGE_N = 0.2  # N the rpm-predicted thrust must rise over the fit window to count as an edge
+G = 9.81  # m/s^2, grams of force to N
 N_MOTORS = 4
 STAND_PLOTS_DIR = DOWNWASH_PLOTS_DIR / "a3_stand"
 COMBINED_PATH = A3_RESULTS_DIR / "stand_summary.csv"
@@ -106,6 +128,60 @@ def rpm_drift(t: NDArray, rpm: NDArray, baseline: tuple[float, float], window: t
         window_mean(t, rpm, *window), base, out=np.full_like(base, np.nan), where=spinning
     )
     return ratio - 1.0
+
+
+def measured_crossing(
+    t: NDArray, x_rel: NDArray, speed: NDArray, t0: float, t1: float
+) -> tuple[float, float]:
+    """PC time and speed at which the source passes the stand's x inside [t0, t1].
+
+    Where x changes sign more than once, e.g. a source that wobbles over the stand, the crossing at
+    the highest speed counts, as in `a3_convert.derive`.
+
+    Args:
+        t: Record times in PC seconds (N,).
+        x_rel: The source's x relative to the stand (N,).
+        speed: The source's horizontal speed (N,).
+        t0: Start of the search, PC seconds.
+        t1: End of the search.
+
+    Returns:
+        The crossing time and the speed there, NaN for both when the source never crosses.
+    """
+    ok = np.isfinite(x_rel) & np.isfinite(speed) & (t >= t0) & (t <= t1)
+    t, x_rel, speed = t[ok], x_rel[ok], speed[ok]
+    if len(t) < 2:
+        return math.nan, math.nan
+    a, b = x_rel[:-1], x_rel[1:]
+    crossings = np.flatnonzero(((a <= 0) & (b > 0)) | ((a >= 0) & (b < 0)))
+    if len(crossings) == 0:
+        return math.nan, math.nan
+    k = int(crossings[np.argmax(speed[crossings])])
+    cross = float(t[k] + (t[k + 1] - t[k]) * x_rel[k] / (x_rel[k] - x_rel[k + 1]))
+    return cross, float(np.interp(cross, t, speed))
+
+
+def spin_on_delay(t: NDArray, force: NDArray, thrust: NDArray, spin_on: float) -> float:
+    """Delay of the load cell behind the rotor thrust at a spin-up, in s.
+
+    The card logs both on one clock, and `lag` is the shift of the rpm-predicted `thrust` that
+    best matches the cell's `force` over the window around the spin-on stamp. The stamp only places
+    the window: it follows the arming and the write, so the edge itself lies a little before it.
+
+    Args:
+        t: Card time in PC seconds (N,).
+        force: The load cell force in N (N,), any zero.
+        thrust: The rotor thrust from the rpm in N (N,).
+        spin_on: PC time stamped at the spin-on command.
+
+    Returns:
+        The delay, positive when the cell is late; NaN if the thrust does not rise in the window.
+    """
+    t_grid = np.arange(spin_on - CELL_DELAY_BEFORE, spin_on + CELL_DELAY_AFTER, 1 / GRID_FREQ)
+    on_grid = resample(t, thrust, t_grid, CARD_MAX_GAP)
+    if not np.isfinite(on_grid).any() or np.nanmax(on_grid) - np.nanmin(on_grid) < MIN_EDGE_N:
+        return math.nan
+    return lag(t_grid, resample(t, force, t_grid, CARD_MAX_GAP), t, thrust, CELL_DELAY_MAX)
 
 
 def load_run(folder: Path, calibration: Path | None = None) -> dict:
@@ -153,16 +229,27 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     Returns:
         The arrays and the summary row.
     """
-    meta, g = run["meta"], 9.81
-    stand = meta["config"]["stand"]
+    meta = run["meta"]
+    stand, cruise_half = meta["config"]["stand"], meta["config"]["a3"]["cruise_half"]
     events = outcome["events"]
     t_zero = run["t_zero"]
-    cross = t_zero + spin["cross"]
+    cross_nominal = t_zero + spin["cross"]
     pass_start, pass_end = t_zero + spin["pass_start"], t_zero + spin["pass_end"]
+    stand_pos = np.asarray(meta["stand_pos"], dtype=float)
+    src_rel = run["src_pos"] - stand_pos
+    src_speed = np.linalg.norm(run["src_vel"][:, :2], axis=1)
+    cross, cross_speed = measured_crossing(
+        run["src_t"], src_rel[:, 0], src_speed, pass_start, pass_end
+    )
+    crossed = math.isfinite(cross)
+    if not crossed:
+        cross = cross_nominal  # Aligned on the timeline, flagged no_crossing below
+    half = cruise_half / row["speed"]
+    settled = (run["src_t"] >= cross - half) & (run["src_t"] <= cross + half)
     baseline = (events["spin_on"] + stand["spin_settle_s"], pass_start)
     t, weight = run["t"], run["weight_g"]
     tare_g = float(window_mean(t, weight, events["tare_start"], events["tare_end"]))
-    force = (weight - tare_g) * 1e-3 * g
+    force = (weight - tare_g) * 1e-3 * G
     # Up to the stop of the motors, before their spin-down drops the force. Runs before 21 Nov
     # 23:30 stamped spin_off only after stop_spin returned, ~1 s after the stop went out, so the
     # schedule's own stop time bounds it as well.
@@ -173,9 +260,7 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
         "force_z": resample(t, force, t_grid, CARD_MAX_GAP),
         "thrust_rpm": resample(t, run["thrust_rpm"], t_grid, CARD_MAX_GAP),
         "rpm": resample(t, run["rpm"], t_grid, CARD_MAX_GAP),
-        "src_pos_rel": resample(
-            run["src_t"], run["src_pos"] - np.asarray(meta["stand_pos"]), t_grid, MOCAP_MAX_GAP
-        ),
+        "src_pos_rel": resample(run["src_t"], src_rel, t_grid, MOCAP_MAX_GAP),
         "src_vel": resample(run["src_t"], run["src_vel"], t_grid, MOCAP_MAX_GAP),
     }
     base_force = float(window_mean(t, force, *baseline))
@@ -190,11 +275,27 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     drift = rpm_drift(t, run["rpm"], baseline, (pass_start, pass_end))
     # A card stall only spoils the leg in the baseline or while the wake acts around the crossing
     near = (t_grid < baseline[1]) | ((t_rel >= GAP_BEFORE_CROSS) & (t_rel <= GAP_AFTER_CROSS))
+    in_pass = (t >= pass_start) & (t <= pass_end)
+    rpm_pass = run["rpm"][in_pass]
+    delay = (
+        spin_on_delay(t, force, run["thrust_rpm"], events["spin_on"])
+        if meta["mode"] == "spin" and outcome["spun"]
+        else math.nan
+    )
     summary = {key: row[key] for key in LEG_KEYS} | {
         "mode": meta["mode"],
         "run": Path(meta.get("folder", "")).name,
         "spun": outcome["spun"],
         "status": "ok",
+        "cross_nominal_s": cross_nominal - t_zero,
+        "cross_s": cross - t_zero,
+        "cross_lag_s": cross - cross_nominal if crossed else math.nan,
+        "cross_speed": cross_speed,
+        "height_sep_meas": float(np.mean(src_rel[settled, 2])) if settled.any() else math.nan,
+        "lateral_offset_meas": float(np.mean(src_rel[settled, 1])) if settled.any() else math.nan,
+        "cell_delay_s": delay,
+        "rpm_pass_mean": float(np.nanmean(rpm_pass)) if np.isfinite(rpm_pass).any() else math.nan,
+        "rpm_pass_valid": float(np.isfinite(rpm_pass).mean()) if rpm_pass.size else math.nan,
         "tare_g": tare_g,
         "baseline_force_N": base_force,
         "baseline_thrust_rpm_N": base_thrust,
@@ -211,6 +312,8 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     }
     if meta["mode"] == "spin" and not outcome["spun"]:
         summary["status"] = "not_spun"  # Refly it: the motors did not run through the pass
+    elif not crossed:
+        summary["status"] = "no_crossing"  # The source never passed the stand's x
     elif summary["card_gaps_near"]:
         summary["status"] = "card_gap"
     return arrays, summary
@@ -271,9 +374,27 @@ def convert(folder: Path, calibration: Path | None = None) -> list[dict]:
             f"{summary['t_peak_s']:+.2f} s, rpm drift {summary['rpm_drift_mean'] * 100:+.2f} %"
         )
     write_rows(folder / "summary.csv", rows)
+    run["sync"]["cell_delay"] = cell_delay_report(rows)
     (folder / "sync.json").write_text(json.dumps(run["sync"], indent=2, default=float))
     quicklook(meta["design_rows"], legs, folder.name, STAND_PLOTS_DIR / f"{folder.name}.png")
     return rows
+
+
+def cell_delay_report(rows: Sequence[Mapping]) -> dict:
+    """The load cell's delay behind the rotor thrust over the legs of a run, for sync.json."""
+    per_leg = {
+        int(r["leg"]): float(r["cell_delay_s"])
+        for r in rows
+        if "cell_delay_s" in r and math.isfinite(r["cell_delay_s"])
+    }
+    delays = np.array(list(per_leg.values()))
+    return {
+        "n": len(per_leg),
+        "median_s": float(np.median(delays)) if len(delays) else math.nan,
+        "std_s": float(np.std(delays)) if len(delays) else math.nan,
+        "per_leg_s": per_leg,
+        "note": "load cell behind the rpm-predicted thrust at the spin-up, reported, not applied",
+    }
 
 
 def write_rows(path: Path, rows: Sequence[Mapping]):

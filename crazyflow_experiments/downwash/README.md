@@ -36,8 +36,13 @@ The hover experiment (`hover/deploy.py`) names and collects its card the same wa
 ## Block A3: flyover passes over a hovering victim
 
 One Crazyflie, the *victim*, hovers at a fixed point. A second, the *source*, flies straight passes
-over it at 0.25, 0.5 and 0.8 m above (0.4, 0.8 and 1.2 m until 21 Nov; the motion capture loses the source above 1.8 m), at 0.5, 1.0 and `v_max` m/s. Each of the nine cells is flown
-once per flight in three flights, 27 legs in all. Every pass flies from -x to +x; after it the
+over it at 0.25, 0.5, 0.75 and 1.0 m above, at 0.5, 1.0, 1.5 and 2.0 m/s (`v_max`, capped at
+`[a3] max_speed`; user, 22 Nov). The victim hovers at 0.8 m so that the highest pass is at 1.8 m,
+where the motion capture still sees the source (0.25, 0.5 and 0.8 m above a victim at 1.0 m until
+22 Nov, 0.4, 0.8 and 1.2 m before 21 Nov). The 16 cells are flown three times, 48 legs in six
+flights of eight: each repeat is a far flight (1.0 and 0.75 m, odd flight numbers) and a near one
+(0.5 and 0.25 m, even numbers), the first repeat in the shakedown order, the others with the cells
+of each flight shuffled. The stand flies only the near flights. Every pass flies from -x to +x; after it the
 source flies back to the next start point through a lane `return_lane` (1.0 m) to the side of the
 victim, clear of its wake, so it only ever crosses over the victim during a pass. Both drones log
 onboard to their micro-SD card decks at about 505 Hz, and the PC records the motion capture and
@@ -96,8 +101,13 @@ Fly in this order, and look at each flight before the next:
 | Flight | Command | Look at |
 |---|---|---|
 | F0 | `--flight 1 --only-source`, victim on the ground and unconnected | cruise speed within 2 % in every settled window, off-path error below 5 cm |
-| F1 | `--flight 1`, shakedown order from Δz 1.2 to 0.4 m | convert it first: sync, label bias, one Fz peak per leg at the predicted lag |
-| F2, F3 | `--flight 2`, `--flight 3` | |
+| F1, F2 | `--flight 1` (1.0 and 0.75 m), `--flight 2` (0.5 and 0.25 m), shakedown order from the largest Δz to the smallest | convert F1 first: sync, label bias, one Fz peak per leg at the predicted lag |
+| F3 to F6 | `--flight 3` to `--flight 6`, the second and third repeat | |
+
+Repeat F0 at 2.0 m/s first (`--flight 1 --only-source`, legs at 2.0 m/s): the 1.4 m/s of 18 Nov was
+the fastest the source had flown, 2 m/s needs a 17° tilt in the ramps and its settling is not
+checked. Raise `settle_time` and regenerate the design if the speed is not within 5 % in the
+settled window.
 | Make-up | `a3_design.py --makeup <legs>` writes `design_makeup_f4_legs….csv`, flown with `--flight 4 --design <that csv>` | the legs of F1–F3 whose `summary.csv` status is not `ok`: `hard_fail` (e.g. `sd_gap_*`, a card stall inside the label window; stalls elsewhere only flag `sd_gap_outside_label_*`), `skipped` or `not_flown`; they keep their leg numbers |
 
 Before each flight: fresh batteries in both drones (at least 3.8 V at rest), doors closed and
@@ -153,7 +163,7 @@ writes per leg `leg<NN>/states.npz`, `meta.json` and `quicklook.png`, and per fl
 
 | Path | Content |
 |---|---|
-| `results/downwash/a3/design_a3.csv` | The 27 legs, times from each flight's timeline zero |
+| `results/downwash/a3/design_a3.csv` | The 48 legs, times from each flight's timeline zero |
 | `results/downwash/a3/NOTES.md` | Bench, flight and conversion results |
 | `results/downwash/a3/flight<k>_<timestamp>/` | `meta.json`, `records.pkl`, `sd/`, the conversion outputs |
 | `plots/downwash/` | Design and dry-run timelines |
@@ -193,7 +203,7 @@ the design:
 | after | `spin_after_s` 1.5 s | the wake arrives 0.1 to 0.35 s after the source; then motors off |
 
 The stand flies only the passes at `[stand] height_seps`, 0.25 and 0.5 m (at most 0.5 m above
-the victim, user, 21 Nov), six of the nine legs of each flight. A leg spins 10.6 to 12.1 s; a
+the victim, user, 21 Nov), all eight legs of each near flight. A leg spins 10.6 to 12.1 s; a
 flight 67 s. With `battery_spin_s` 45 s of hover per battery (**[VERIFY]** on the first spin run)
 that is **3 legs per battery, 2 batteries per flight**; the dry
 run prints this budget for the legs it plans. Between legs the battery is read at rest in the tare:
@@ -215,8 +225,8 @@ pixi run -e sim2real python crazyflow_experiments/downwash/usd.py write-config /
 ```
 
 Terminals as for A3, the motion capture and the source's estimator (the victim needs none). The
-stand must sit within 0.06 m of x = 0: the 1.4 m/s passes span ±2.14 m and the arena allows
-±2.2 m, which the dry run checks. The source stands at least 0.5 m from the stand.
+stand must sit within 0.4 m of x = 0: the 2 m/s passes span ±2.8 m and the arena allows
+±3.2 m after its margin, which the dry run checks. The source stands at least 0.5 m from the stand.
 
 Before each run, `battery.py` reads both batteries at rest without rebooting the drones and
 compares them with the limits of the runs (`--watch` repeats it every 2 s):
@@ -227,19 +237,21 @@ pixi run -e sim2real python crazyflow_experiments/downwash/battery.py
 
 ```bash
 # Plan first: --stand-pos and --source-pos stand in for the motion capture
-pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin \
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 2 --stand --spin \
     --dry-run --stand-pos 0 0.12 1.53 --source-pos -0.3 -1.0 0.04
 # Still: one battery per flight, its six stand legs
-pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 2 --stand
 # Spin: one fresh victim battery per three legs
-pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 3-5
-pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 1 --stand --spin --legs 6-8
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 2 --stand --spin --legs 8-10
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 2 --stand --spin --legs 11-13
+pixi run -e sim2real python crazyflow_experiments/downwash/a3_deploy.py --flight 2 --stand --spin --legs 14-15
 ```
 
-Flights 2 and 3 likewise. Their cells are shuffled, so their stand legs are not consecutive:
-flight 2 `--legs 9,10,12` and `--legs 14,15,17`, flight 3 `--legs 18,20,21` and
-`--legs 22,23,24`. Three runs per flight in all, one still and two spin parts, plus any refly the
-battery asks for; `--legs` refuses a leg at a separation the stand skips. Each run reboots the
+The stand flies the near flights only, 2, 4 and 6 (the others have no leg at its separations
+and are refused), whose legs are 8 to 15, 24 to 31 and 40 to 47. Each is one still run and three
+spin parts of at most three legs, e.g. flight 2 `--legs 8-10`, `--legs 11-13` and `--legs 14-15`,
+flight 4 `--legs 24-26`, `27-29` and `30-31`, flight 6 `--legs 40-42`, `43-45` and `46-47`, plus
+any refly the battery asks for; `--legs` refuses a leg at a separation the stand skips. Each run reboots the
 victim, records 5 s of still air, takes the source off, flies the legs with the victim following
 its schedule, lands the source clear of the stand (within the clearance it first climbs and moves
 into the return lane) and records still air again. Ctrl+C ends the legs and lands the source.
@@ -252,12 +264,23 @@ pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py r
 pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py --combine results/downwash/a3/stand_flight*
 ```
 
-Each run gets `legs/leg<NN>.npz` (t from the crossing in s; `force_z`, `dforce_z`, `thrust_rpm`,
-`dthrust_rpm`, `dforce_wake` in N, up positive; the four rpm; the source's position relative to
-the victim and its velocity), `summary.csv` (tare, baseline, peak change and its time after the
-crossing, rpm drift over the pass, battery) and `sync.json`. The rotor thrust comes from the rpm
-through cf10's A1 curve, so the sag at a fixed command is accounted for; `dforce_wake` is what the
-rotor speeds do not explain. `--combine` keeps, per flight, mode and leg, the latest run that flew
+Each run gets `legs/leg<NN>.npz` (t from the measured crossing in s; `force_z`, `dforce_z`,
+`thrust_rpm`, `dthrust_rpm`, `dforce_wake` in N, up positive; the four rpm; the source's position
+relative to the victim and its velocity), `summary.csv` (tare, baseline, peak change and its time
+after the crossing, rpm drift over the pass, battery) and `sync.json`. The rotor thrust comes from
+the rpm through cf10's A1 curve, so the sag at a fixed command is accounted for; `dforce_wake` is
+what the rotor speeds do not explain.
+
+The crossing is where the source's recorded x passes the stand's, as in the free-flight conversion,
+not the timeline's midpoint (`cross_nominal_s`; `cross_lag_s` is the difference). The summary also
+holds the geometry the source really flew, `height_sep_meas` and `lateral_offset_meas` over the
+settled window, and `cross_speed`. Mind `height_sep_meas`: in the runs of 21 and 22 Nov it is 5 cm
+above the design, 0.30 and 0.55 m for 0.25 and 0.5 m. The source's measured z sits 5 cm above its
+setpoint already in the hover before the pass; why is not known yet (its estimator against the
+motion capture z is the first thing to compare). `cell_delay_s` is the load cell's delay behind the rpm-predicted thrust
+at each spin-up, 0.027 s in all nine spin runs, in `sync.json` as `cell_delay`; it is reported, not
+applied. `rpm_pass_mean` and `rpm_pass_valid` show what the unpowered props read in a still run:
+0 rpm, so their windmilling is not measured. `--combine` keeps, per flight, mode and leg, the latest run that flew
 it in full, in `results/downwash/a3/stand_summary.csv` and `plots/downwash/a3_stand/`.
 
 ## Block A1: crazyflow's rpm2thrust on the load cell

@@ -109,18 +109,21 @@ docstring, so only the cases that deviate are listed here.
   Both drones log onboard to micro-SD; the conversion maps each card's clock onto PC time from the
   `ctrltarget` echo of the sent setpoints (`sync.fit_clock`). It also needs the rosbag of `/tf`
   recorded during the flight. `--dry-run` plans a flight without connecting anything.
-- A3 flies the source 0.25, 0.5 and 0.8 m above the victim (`[a3] height_seps`, 0.4, 0.8 and 1.2 m
-  until 21 Nov; the motion capture loses the source above 1.8 m). A3 on the stand (`a3_deploy.py --flight <k> --stand [--spin] [--legs 3,5-7]`)
-  flies the legs at `[stand] height_seps`, 0.25 and 0.5 m, six per flight, over the victim cf10
+- A3 flies the source 0.25, 0.5, 0.75 and 1.0 m above the victim hovering at 0.8 m (`[a3]
+  height_seps`, so the highest pass is at 1.8 m, where the motion capture still sees the source) at
+  0.5, 1.0, 1.5 and 2.0 m/s (`max_speed`): 16 cells, three repeats, six flights of eight legs, a far
+  flight (1.0 and 0.75 m) and a near one (0.5 and 0.25 m) per repeat. A3 on the stand
+  (`a3_deploy.py --flight <k> --stand [--spin] [--legs 8-10]`, the near flights 2, 4 and 6 only)
+  flies the legs at `[stand] height_seps`, 0.25 and 0.5 m, eight per flight, over the victim cf10
   clamped on the load cell, centred on its motion capture position and `height_sep` above it; only the source flies, the victim is a `radio.Victim` that streams and
   logs the load cell. With `--spin` it runs at `[stand] hover_cmd` per leg on its battery, along
   the schedule of `a3_stand.py` (tare, arming, settle, baseline, pass, motors off), which also
   skips spinning below a rest voltage and lists the legs to refly; `--legs` splits a flight across
   batteries. A dry run needs `--stand-pos` and `--source-pos` and prints the battery budget. Runs
   record to `results/downwash/a3/stand_flight<k>_<still|spin>_<time>/`, `usd.py collect --block
-  a3_stand` fills their cards in, and `a3_stand_convert.py` cuts each leg around its crossing
-  (forces in N, the victim's thrust from its rpm through cf10's A1 curve), `--combine` merges the
-  runs of a flight.
+  a3_stand` fills their cards in, and `a3_stand_convert.py` cuts each leg around the source's measured
+  crossing (forces in N, the victim's thrust from its rpm through cf10's A1 curve) and reports the
+  load cell's delay behind that thrust, `--combine` merges the runs of a flight.
 - The load cell setup test of `downwash/` (`lc_test_*`) tests the load cell under the victim: the
   victim sits on it with its motors off and reads it with the `loadcell` deck driver of the
   firmware's sysid build, the source hovers beside, over and beside it again.

@@ -43,8 +43,8 @@ from tests.downwash.fakes import (  # noqa: E402
     patch_pair,
 )
 
-VICTIM = np.array([0.0, 0.0, 1.0])
-SOURCE = np.array([-1.15, 0.0, 2.2])
+VICTIM = np.array([0.0, 0.0, 0.8])
+SOURCE = np.array([-1.15, 0.0, 1.8])  # Start of the highest pass, 1.0 m above the victim
 
 
 @pytest.fixture(scope="module")
@@ -88,11 +88,11 @@ def test_outdated_mocap_aborts(limits: SafetyLimits, drone: str):
 @pytest.mark.parametrize(
     ("pos", "inside"),
     [
-        ([2.45, 0.0, 1.4], True),
-        ([2.55, 0.0, 1.4], False),
+        ([3.45, 0.0, 1.4], True),
+        ([3.55, 0.0, 1.4], False),
         ([0.0, -2.05, 1.4], False),
-        ([-1.0, 0.0, 2.29], True),
-        ([-1.0, 0.0, 2.31], False),
+        ([-1.0, 0.0, 1.99], True),
+        ([-1.0, 0.0, 2.01], False),
         ([-1.0, 0.0, -0.01], False),
     ],
 )
@@ -391,7 +391,7 @@ def separation_broken(cfg: dict, p_src: np.ndarray, p_vic: np.ndarray) -> np.nda
 
 
 @pytest.mark.parametrize(("victim_xy", "source_xy"), PLACEMENTS)
-@pytest.mark.parametrize("source_z", [1.4, 2.2])  # Start of the closest and the highest first leg
+@pytest.mark.parametrize("source_z", [1.05, 1.8])  # Start of the closest and the highest first leg
 def test_takeoff_from_anywhere_keeps_the_pair_apart(
     cfg: dict, victim_xy: tuple, source_xy: tuple, source_z: float
 ):
@@ -421,7 +421,7 @@ def test_placement_needs_the_arena_margin_and_spacing(cfg: dict):
     with pytest.raises(RuntimeError, match="apart"):
         a3_deploy.check_placement(drones((0.3, -0.4), (0.3, 0.4)), cfg)
     with pytest.raises(RuntimeError, match="arena margin"):
-        a3_deploy.check_placement(drones((0.0, 0.0), (-2.4, 0.0)), cfg)
+        a3_deploy.check_placement(drones((0.0, 0.0), (-3.4, 0.0)), cfg)
 
 
 @pytest.mark.parametrize(("victim_xy", "source_xy"), PLACEMENTS[:2])
@@ -484,13 +484,15 @@ def test_landing_close_lets_the_upper_drone_climb_first(cfg: dict, clock: FakeCl
     names = source.names()
     assert names.index("go_to") < names.index("land")
     x, y, z, _, duration = next(call[1] for call in source.calls if call[0] == "go_to")
-    assert (x, y, z, duration) == pytest.approx((0.1, 0.0, 1.7, pair.CLIMB_TIME))
+    assert (x, y, z, duration) == pytest.approx(
+        (0.1, 0.0, VICTIM[2] + 0.4 + pair.CLIMB, pair.CLIMB_TIME)
+    )
     assert victim.names().count("land") == 1 and "go_to" not in victim.names()
 
 
 def test_landing_climb_stays_below_the_ceiling(cfg: dict, clock: FakeClock):
     victim = FakeDrone(3, VICTIM)
-    source = FakeDrone(1, VICTIM + np.array([0.0, 0.0, 1.2]))  # The highest pass, at 2.2 m
+    source = FakeDrone(1, VICTIM + np.array([0.0, 0.0, 1.0]))  # The highest pass, at 1.8 m
     pair.land_pair(victim, source, cfg)
     z = next(call[1][2] for call in source.calls if call[0] == "go_to")
     assert z <= cfg["safety"]["arena_max"][2] - 0.1 + 1e-9
