@@ -86,8 +86,8 @@ def test_a_flight_without_stand_legs_is_refused_with_a_reason():
 
 
 def test_an_off_centre_stand_leaves_the_passes_no_room():
-    """The 2 m/s passes span ±2.8 m, the arena ±3.2 m after its margin."""
-    cfg, rows = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND + [0.5, 0.0, 0.0])
+    """The 2 m/s passes span ±2.8 m, the arena ±3.5 m after its margin."""
+    cfg, rows = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND + [0.75, 0.0, 0.0])
     with pytest.raises(ValueError, match="leaves the arena"):
         check_design(rows, cfg)
 

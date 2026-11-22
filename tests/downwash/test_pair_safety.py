@@ -88,9 +88,9 @@ def test_outdated_mocap_aborts(limits: SafetyLimits, drone: str):
 @pytest.mark.parametrize(
     ("pos", "inside"),
     [
-        ([3.45, 0.0, 1.4], True),
-        ([3.55, 0.0, 1.4], False),
-        ([0.0, -2.05, 1.4], False),
+        ([3.75, 0.0, 1.4], True),
+        ([3.85, 0.0, 1.4], False),
+        ([0.0, -2.15, 1.4], False),
         ([-1.0, 0.0, 1.99], True),
         ([-1.0, 0.0, 2.01], False),
         ([-1.0, 0.0, -0.01], False),
@@ -127,10 +127,10 @@ def test_tracking(limits: SafetyLimits, drone: str):
 def test_tracking_tolerates_lag_but_not_leaving_the_path(limits: SafetyLimits):
     t = np.linspace(-pair.TRACKING_WINDOW, 0.0, 31)
     path = SOURCE + np.outer(1.4 * t, [1.0, 0.0, 0.0])  # The last 0.3 s of a pass at 1.4 m/s
-    late = path[10]  # 0.2 s late: 0.28 m behind the current setpoint, but on the path
+    late = path[0]  # 0.3 s late: 0.42 m behind the current setpoint, but on the path
     assert np.linalg.norm(late - path[-1]) > limits.max_tracking_error
     assert safety_violation(limits, obs(late), path) is None
-    off = late + np.array([0.0, 0.26, 0.0])
+    off = late + np.array([0.0, limits.max_tracking_error + 0.01, 0.0])
     assert safety_violation(limits, obs(off), path).startswith("tracking: the source")
 
 
@@ -421,7 +421,7 @@ def test_placement_needs_the_arena_margin_and_spacing(cfg: dict):
     with pytest.raises(RuntimeError, match="apart"):
         a3_deploy.check_placement(drones((0.3, -0.4), (0.3, 0.4)), cfg)
     with pytest.raises(RuntimeError, match="arena margin"):
-        a3_deploy.check_placement(drones((0.0, 0.0), (-3.4, 0.0)), cfg)
+        a3_deploy.check_placement(drones((0.0, 0.0), (-3.6, 0.0)), cfg)
 
 
 @pytest.mark.parametrize(("victim_xy", "source_xy"), PLACEMENTS[:2])
@@ -455,6 +455,16 @@ def test_takeoff_gives_up_on_a_stuck_calibration(
     source = FakeDrone(1, np.array([-2.0, 0.0, 0.02]))
     takeoff = pair.takeoff_pair(victim, source, {"victim": VICTIM, "source": SOURCE}, cfg)
     assert takeoff.error == "calibration did not finish"
+
+
+def test_takeoff_ends_when_a_drone_leaves_the_arena(cfg: dict, clock: FakeClock):
+    """22 Nov: the takeoff checked only the mocap, and the source climbed out of its reach."""
+    victim = FakeDrone(3, np.array([0.0, 0.0, 0.02]))
+    source = FakeDrone(1, np.array([-2.0, 0.0, 0.02]))
+    outside = np.array([cfg["safety"]["arena_max"][0] + 0.2, 0.0, 1.0])
+    takeoff = pair.takeoff_pair(victim, source, {"victim": VICTIM, "source": outside}, cfg)
+    assert takeoff.error is not None and takeoff.error.startswith("arena: the source")
+    assert takeoff.records[-1]["source"]["cmd_pos"][0] < outside[0]  # Ended on the way there
 
 
 def test_takeoff_raises_on_outdated_mocap(cfg: dict, clock: FakeClock):

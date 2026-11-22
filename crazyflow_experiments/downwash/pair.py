@@ -194,6 +194,14 @@ def with_drag(
     return pos, vel, acc
 
 
+def arena_violation(limits: SafetyLimits, name: str, pos: NDArray) -> str | None:
+    """The arena rule for one drone, or None: its position (3,) lies inside the flight volume."""
+    pos = np.asarray(pos)
+    if np.any(pos < limits.arena_min) or np.any(pos > limits.arena_max):
+        return f"arena: the {name} is at {np.round(pos, 3).tolist()}"
+    return None
+
+
 def safety_violation(
     limits: SafetyLimits,
     obs_source: Mapping,
@@ -225,9 +233,8 @@ def safety_violation(
         if obs["is_outdated"]:
             return f"mocap: the {name}'s measurement is outdated"
     for name, (obs, _) in drones.items():
-        pos = np.asarray(obs["pos"])
-        if np.any(pos < limits.arena_min) or np.any(pos > limits.arena_max):
-            return f"arena: the {name} is at {np.round(pos, 3).tolist()}"
+        if (reason := arena_violation(limits, name, obs["pos"])) is not None:
+            return reason
     if obs_victim is not None:
         p_src, p_vic = np.asarray(obs_source["pos"]), np.asarray(obs_victim["pos"])
         dxy = float(np.linalg.norm(p_src[:2] - p_vic[:2]))
@@ -461,6 +468,7 @@ def takeoff_pair(
     drones = _flying(victim, source)
     ctrl_freq, climb_time = cfg["control"]["ctrl_freq"], cfg["takeoff"]["duration"]
     drag = drag_per_speed(cfg["drones"]["model"])
+    limits = SafetyLimits.from_config(cfg)
     refused = [
         _cannot_arm(f"the {name}", info)
         for name, drone in drones.items()
@@ -486,6 +494,9 @@ def takeoff_pair(
         for name, o in obs.items():
             if o["is_outdated"]:
                 raise RuntimeError(f"Takeoff: the {name}'s measurement is outdated")
+            if (reason := arena_violation(limits, name, o["pos"])) is not None:
+                logger.error(f"Takeoff aborted: {reason}")  # Both land; 22 Nov: it left unchecked
+                return Takeoff(records, reason)
         t_wall = time.time()
         record = {"t_perf": t - t0, "t_wall": t_wall, "victim": None}
         t_plan = tick / ctrl_freq

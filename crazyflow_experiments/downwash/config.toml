@@ -55,18 +55,18 @@ hop_time = 1.0
 
 [takeoff]                           # from wherever the drones stand, at least 1 m apart
 duration = 4.0                      # s of the straight climb; the level transfer takes move_speed
-hover_time = 2.0
+hover_time = 4.0                    # s of hover after it, before the legs: 2.0 left the source 27 cm off its path at the first tick (22 Nov)
 
 [safety]
-arena_min = [-3.5, -2.0, 0.0]       # [VERIFY] the room is about 8 x 4.5 m (user, 22 Nov); x +-3.5 fits the 2 m/s passes (half 2.8 m + 0.3 m margin)
-arena_max = [3.5, 2.0, 2.0]         # the setpoints stay 0.1 m below it, i.e. at 1.8 m at most; the stand's runs use [stand] arena_max_z
+arena_min = [-3.8, -2.1, 0.0]       # [VERIFY] the room is about 8 x 4.5 m (user, 22 Nov), so these keep 0.2 m (x) and 0.15 m (y) to its walls. The abort fence of the loop and the takeoff, not the flight envelope: the passes need x +-3.1 m (half 2.8 m + 0.3 m margin) and the return lane y +-1.1 m. +-3.5 x, +-2.0 y until 22 Nov
+arena_max = [3.8, 2.1, 2.0]         # the setpoints stay 0.1 m below the ceiling, i.e. at 1.8 m at most; the stand's runs use [stand] arena_max_z
 x_margin = 0.3
 # m, while |Δxy| < xy_guard. 0.15 since the lowest pass flies 0.25 m above the victim (the design
 # keeps the commanded paths SEPARATION_MARGIN = 0.05 m above it): a source 10 cm below a 0.25 m
 # pass aborts, while the two drones, about 5 cm tall, stay clear of each other.
 min_vertical_sep = 0.15
 xy_guard = 0.40
-max_tracking_error = 0.25           # m, either drone, measured vs the commanded path of the last 0.3 s
+max_tracking_error = 0.35           # m, either drone, measured vs the commanded path of the last 0.3 s. 0.25 until 22 Nov: the source lags its setpoint by 0.17 s, 16 to 24 cm at the end of every move, and 0.25 aborted the stand runs
 victim_max_drop = 0.25              # m below hover_z
 vbat_min_start = 3.8                # V at rest before take-off, both drones
 vbat_min_close_leg = 3.45           # V under load before a Δz <= 0.4 leg (pair.CLOSE_HEIGHT_SEP), else the leg is skipped and logged; F1 (18 Nov) read 3.45–3.50 there

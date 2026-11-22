@@ -61,11 +61,11 @@ def write_config(tmp_path: Path, **sections: dict) -> Path:
 
 def test_v_max_is_the_arenas_limit_capped_at_max_speed(cfg: dict, tmp_path: Path):
     a3 = cfg["a3"]
-    assert a3["v_max"] == 2.0  # max_speed; the arena's own is floor((3.5 - 0.3 - 0.6) / 1.1) = 2.3
+    assert a3["v_max"] == 2.0  # max_speed; the arena's own is floor((3.8 - 0.3 - 0.6) / 1.1) = 2.6
     assert a3["speeds"] == [0.5, 1.0, 1.5, 2.0]
     uncapped = load_config(write_config(tmp_path, a3={"max_speed": 9.0}), require_masses=False)
-    assert uncapped["a3"]["v_max"] == 2.3
-    assert uncapped["a3"]["speeds"] == [0.5, 1.0, 1.5, 2.3]
+    assert uncapped["a3"]["v_max"] == 2.6
+    assert uncapped["a3"]["speeds"] == [0.5, 1.0, 1.5, 2.6]
 
 
 def test_pass_geometry_of_the_four_speeds(cfg: dict):

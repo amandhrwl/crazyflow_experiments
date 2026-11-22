@@ -225,8 +225,8 @@ pixi run -e sim2real python crazyflow_experiments/downwash/usd.py write-config /
 ```
 
 Terminals as for A3, the motion capture and the source's estimator (the victim needs none). The
-stand must sit within 0.4 m of x = 0: the 2 m/s passes span ±2.8 m and the arena allows
-±3.2 m after its margin, which the dry run checks. The source stands at least 0.5 m from the stand.
+stand must sit within 0.7 m of x = 0: the 2 m/s passes span ±2.8 m and the arena allows
+±3.5 m after its margin, which the dry run checks. The source stands at least 0.5 m from the stand.
 
 Before each run, `battery.py` reads both batteries at rest without rebooting the drones and
 compares them with the limits of the runs (`--watch` repeats it every 2 s):
