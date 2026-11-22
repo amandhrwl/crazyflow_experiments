@@ -129,6 +129,10 @@ def stand_flight(
     victim = stand_cfg["drones"]["victim"]
     victim["hover_xy"] = stand_pos[:2].tolist()
     victim["hover_z"] = float(stand_pos[2])
+    # The takeoff climbs to hover_z + the largest separation of `a3.height_seps`: on the stand that
+    # is the stand's, not the free flights' 1.0 m, which sent the source to 2.52 m and out of the
+    # motion capture's reach (22 Nov)
+    stand_cfg["a3"]["height_seps"] = [float(dz) for dz in cfg["stand"]["height_seps"]]
     stand_cfg["safety"]["arena_max"] = [
         *stand_cfg["safety"]["arena_max"][:2],
         cfg["stand"]["arena_max_z"],

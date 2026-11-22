@@ -26,7 +26,10 @@ from crazyflow_experiments.downwash.a3_stand_convert import (  # noqa: E402
     rpm_drift,
 )
 from crazyflow_experiments.downwash.pair import SafetyLimits, safety_violation  # noqa: E402
-from crazyflow_experiments.downwash.timeline import build_flight  # noqa: E402
+from crazyflow_experiments.downwash.timeline import (  # noqa: E402
+    build_flight,
+    takeoff_timelines,
+)
 
 CFG = load_config(require_masses=False)
 STAND = np.array([0.0, 0.12, 1.53])  # The victim on the stand, 21 Nov
@@ -60,6 +63,19 @@ def test_legs_are_centred_on_the_stand_at_their_height_above_it():
     check_design(rows, cfg)
     with pytest.raises(ValueError, match="arena_max_z"):
         a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND + [0.0, 0.0, 0.9])  # 0.5 m pass at 2.93 m
+
+
+def test_the_takeoff_climbs_no_higher_than_the_stands_highest_pass():
+    """22 Nov: it climbed to the stand + the free flights' 1.0 m, 2.52 m, and the source was lost."""
+    cfg, rows = a3_stand.stand_flight(CFG, NEAR_FLIGHT, STAND)
+    _, source = build_flight(rows, cfg)
+    plan = takeoff_timelines({"source": SOURCE}, {"source": source.state(0.0)[0]}, cfg)["source"]
+    top = STAND[2] + max(CFG["stand"]["height_seps"])
+    z = plan.state(np.linspace(0.0, plan.duration, 4001))[0][:, 2]
+    assert z.max() == pytest.approx(top)
+    assert max(CFG["a3"]["height_seps"]) > max(
+        CFG["stand"]["height_seps"]
+    )  # The config is untouched
 
 
 def test_a_flight_without_stand_legs_is_refused_with_a_reason():
