@@ -109,6 +109,13 @@ docstring, so only the cases that deviate are listed here.
   Both drones log onboard to micro-SD; the conversion maps each card's clock onto PC time from the
   `ctrltarget` echo of the sent setpoints (`sync.fit_clock`). It also needs the rosbag of `/tf`
   recorded during the flight. `--dry-run` plans a flight without connecting anything.
+- Block A2 of `downwash/` is the static map: the source holds still `[a2] dwell_s` at a grid of
+  offsets (0, ±0.05, ±0.10, ±0.20 m along x, references at -1.0 m) over the victim, per height far to
+  near. `a2_design.py` writes the items, cut into parts of a reference and some offsets, one per spin
+  run of the stand, `a2_deploy.py --condition free|stand [--spin] [--parts 4,5]` flies them through
+  `a3_deploy.fly` and `fly_stand` with an A2 `Block`, `a2_stand_convert.py` and `a2_convert.py` turn
+  runs into `items.csv` (the force against the part's first reference, the steady labels of the free
+  victim), `analyze_a2.py` fits the jet's width. The stand flies parts 4 to 7 (0.5 and 0.25 m).
 - A3 flies the source 0.25, 0.5, 0.75 and 1.0 m above the victim hovering at 0.8 m (`[a3]
   height_seps`, so the highest pass is at 1.8 m, where the motion capture still sees the source) at
   0.5, 1.0, 1.5 and 2.0 m/s (`max_speed`): 16 cells, three repeats, six flights of eight legs, a far

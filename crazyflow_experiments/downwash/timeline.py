@@ -359,6 +359,24 @@ def segment_leg_times(table: Sequence[Mapping], leg: int) -> dict[str, float]:
     return times
 
 
+def segment_dwell_times(table: Sequence[Mapping], item: int) -> dict[str, float]:
+    """Boundaries of one static-map item in a segment table of `Timeline.table`.
+
+    Args:
+        table: The segment table of a source timeline built by `build_static_flight`.
+        item: The item's index, the `leg` label of its segments.
+
+    Returns:
+        `start` of its move, `dwell_start` and `end` of its hold. A skipped item holds where the
+        source is, so its `dwell_start` is the start of that hold.
+    """
+    rows = [row for row in table if row["leg"] == item]
+    if not rows:
+        raise KeyError(f"Item {item} is not in the timeline")
+    dwell = next(row for row in rows if row["phase"] in ("dwell", "hold"))
+    return {"start": rows[0]["t_start"], "dwell_start": dwell["t_start"], "end": rows[-1]["t_end"]}
+
+
 def victim_hover_point(cfg: Mapping) -> NDArray:
     """Point the victim hovers at."""
     victim = cfg["drones"]["victim"]
@@ -534,6 +552,84 @@ def build_flight(
         else:
             source.extend(segments)
             pos = end
+    victim += [hop(p_vic), Hold(p_vic, HOP_GAP), Hold(p_vic, hop_time), Hold(p_vic, HOP_GAP)]
+    source += [Hold(pos, hop_time), Hold(pos, HOP_GAP), hop(pos), Hold(pos, HOP_GAP)]
+    victim_timeline, source_timeline = Timeline(victim), Timeline(source)
+    if not math.isclose(victim_timeline.duration, source_timeline.duration, abs_tol=1e-9):
+        raise RuntimeError("The victim's and the source's timeline differ in duration")
+    return victim_timeline, source_timeline
+
+
+def build_static_flight(
+    design_rows: Sequence[Mapping], cfg: Mapping, skipped: Collection[int] = ()
+) -> tuple[Timeline, Timeline]:
+    """Timelines of the victim and the source over one static-map flight (block A2).
+
+    Like `build_flight` the flight is: hold 2 s, victim hop, hold 1 s, source hop, hold 1 s, then the
+    items, victim hop, hold 1 s, source hop, hold 1 s. The victim holds its hover point throughout;
+    the source starts at the first item's point, flies a cosine move to each next point (the time
+    of `move_duration`) and holds there `a2.dwell_s`. A skipped item is a hold of the same length
+    where the source is. The design keeps every vertical move at the reference point, so the source
+    never flies over the victim. A flight that ends on a point instead of a reference, some parts
+    alone, ends with a move back to the reference, so that the victim's final hop does not rise
+    under the source.
+
+    Args:
+        design_rows: The rows of the flight from the A2 design, in any order: `leg` (the item),
+            `index_in_flight` and the absolute `x_src`, `y_src`, `z_src`.
+        cfg: The experiment config.
+        skipped: Items to replace by a hold.
+
+    Returns:
+        The victim's and the source's timeline, of the same duration.
+    """
+    rows = sorted(design_rows, key=lambda row: int(row["index_in_flight"]))
+    a3, sync, dwell_s = cfg["a3"], cfg["sync"], cfg["a2"]["dwell_s"]
+    hop_time = sync["hop_time"]
+    ceiling = cfg["safety"]["arena_max"][2] - CEILING_MARGIN
+    p_vic = victim_hover_point(cfg)
+
+    def hop(pos: NDArray) -> Hop:
+        rises = pos[2] + sync["hop_height"] <= ceiling + 1e-9
+        return Hop(pos, sync["hop_height"] if rises else -sync["hop_height"], hop_time)
+
+    def point(row: Mapping) -> NDArray:
+        return np.array([float(row["x_src"]), float(row["y_src"]), float(row["z_src"])])
+
+    pos = point(rows[0])  # The takeoff ends at the first item's point
+    victim = [
+        Hold(p_vic, FIRST_HOLD),
+        hop(p_vic),
+        Hold(p_vic, HOP_GAP),
+        Hold(p_vic, hop_time),
+        Hold(p_vic, HOP_GAP),
+    ]
+    source = [
+        Hold(pos, FIRST_HOLD),
+        Hold(pos, hop_time),
+        Hold(pos, HOP_GAP),
+        hop(pos),
+        Hold(pos, HOP_GAP),
+    ]
+    for row in rows:
+        item, goal = int(row["leg"]), point(row)
+        segments: list[Segment] = []
+        if float(np.linalg.norm(goal - pos)) > 1e-9:
+            segments.append(Move(pos, goal, move_duration(pos, goal, a3), item))
+        segments.append(Hold(goal, dwell_s, "dwell", item))
+        duration = sum(seg.duration for seg in segments)
+        victim.append(Hold(p_vic, duration, "hold", item))
+        if item in skipped:
+            source.append(Hold(pos, duration, "hold", item))
+        else:
+            source.extend(segments)
+            pos = goal
+    if rows[-1]["kind"] != "reference":
+        goal = np.array([p_vic[0] + cfg["a2"]["reference_dx"], p_vic[1], pos[2]])
+        retreat = Move(pos, goal, move_duration(pos, goal, a3), phase="retreat")
+        source.append(retreat)
+        victim.append(Hold(p_vic, retreat.duration))
+        pos = goal
     victim += [hop(p_vic), Hold(p_vic, HOP_GAP), Hold(p_vic, hop_time), Hold(p_vic, HOP_GAP)]
     source += [Hold(pos, hop_time), Hold(pos, HOP_GAP), hop(pos), Hold(pos, HOP_GAP)]
     victim_timeline, source_timeline = Timeline(victim), Timeline(source)

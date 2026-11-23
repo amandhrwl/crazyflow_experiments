@@ -2,6 +2,8 @@
 
 The blocks of the downwash experiment, all in this package and the `sim2real` environment:
 
+- **A2**, the static map: the source holds still over the victim at a grid of offsets, on the
+  stand and in free flight.
 - **A3**, flyover passes of the source over the hovering victim, both in flight.
 - **A3 on the stand**, the same passes over the victim clamped on the load cell, its motors off or
   spinning at hover.
@@ -282,6 +284,88 @@ at each spin-up, 0.027 s in all nine spin runs, in `sync.json` as `cell_delay`; 
 applied. `rpm_pass_mean` and `rpm_pass_valid` show what the unpowered props read in a still run:
 0 rpm, so their windmilling is not measured. `--combine` keeps, per flight, mode and leg, the latest run that flew
 it in full, in `results/downwash/a3/stand_summary.csv` and `plots/downwash/a3_stand/`.
+
+## Block A2: the static map
+
+The source holds **still** at a grid of points over the victim, `[a2] dwell_s` 3 s each, and the
+wake force on the victim is measured as a function of the height separation and the offset along x:
+the jet's width and decay, free of the pass's dynamics. Per height, far to near, the points are a
+reference at Δx = -1.0 m (outside the jet: the tare and the drift check), the offsets 0, ±0.05,
+±0.10, ±0.20 m and a last reference; the offsets are cut into two **parts**, each led by a reference,
+so that a spin run of the stand (the victim's battery gives about 45 s of hover) flies one part:
+`[ref, 0, 0.05, -0.05, 0.10]` and `[ref, -0.10, 0.20, -0.20, ref]`. The heights are the free
+flight's 1.0, 0.75, 0.5 and 0.25 m, parts 0 to 7; the stand flies 0.5 and 0.25 m, parts 4 to 7. 40
+items, about 190 s after takeoff in free flight. Between heights the source changes z at the
+reference, never above the victim. The data holds the **measured** offsets of the motion capture:
+the source's hold error is as large as the offsets (+5 cm in z, up to some cm in x).
+
+| File | Role |
+|---|---|
+| `a2_design.py` | Item table `results/downwash/a2/design_a2.csv`, its checks and plot |
+| `timeline.py` (`build_static_flight`) | The source's moves and dwells; ends with a move back to the reference when the last item is a point |
+| `a2_deploy.py` | Flies free (`--condition free`) or over the stand (`--condition stand [--spin]`), through `a3_deploy.fly` and `fly_stand` with its own `Block` |
+| `a2_stand.py` | The items over the stand, the victim's spin schedule: one window per part |
+| `a2_stand_convert.py` | Stand runs to `items.csv` and, combined, `static_map_S0.csv` (still) and `static_map_S1.csv` (spin) |
+| `a2_convert.py` | Free flight to `items.csv`: the geometry, `force_imu`, and the steady labels of the hovering victim |
+| `analyze_a2.py` | Gaussian fit per height and condition, the model's width, the axis offset, the thrust loss, plots |
+
+Cards as for A3: the stand's victim `--block lc`, the source and a free victim `--block a3`.
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_design.py        # write the table
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition free --dry-run
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition stand --spin \
+    --parts 4 --dry-run --stand-pos 0.466 0.015 1.521 --source-pos 2.35 0.02 0.03
+```
+
+**On the stand** (terminals as for A3 on the stand: the motion capture and the source's estimator).
+Still first, the whole stand flight; then the four spin parts, a fully charged victim battery each
+(4.0 V or more at rest) and `battery.py` before every run:
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition stand
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition stand --spin --parts 4
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition stand --spin --parts 5
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition stand --spin --parts 6
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition stand --spin --parts 7
+```
+
+Runs record to `results/downwash/a2/stand_flight1_<still|spin>_<time>/`. After them:
+
+```bash
+pixi run -e sim2real python crazyflow_experiments/downwash/usd.py collect /media/<card> --block a2_stand
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_stand_convert.py results/downwash/a2/stand_flight1_*
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_stand_convert.py --combine results/downwash/a2/stand_flight1_*
+pixi run -e sim2real python crazyflow_experiments/downwash/analyze_a2.py
+```
+
+`items.csv` of a run has per item the measured position of the source against the stand, the load
+cell's change from the baseline of the item's part (`fz_rel_N`, up positive), in a spin run the
+rotor thrust from the rpm and `dforce_wake_N`, the part's `ref_drift_N`, and the status (`ok`,
+`card_gap`, `not_spun`, `no_baseline`, `not_flown`). The first reference of a part is its baseline, in
+a spin run also the spin-alone one.
+
+**Free flight** (after cf10 is weighed, `[drones.victim] mass_kg`): the terminals of A3's free
+flights, the rosbag of `/tf`, then the flight; far heights first, the 0.25 m part only after the
+others held the victim within 0.15 m:
+
+```bash
+ros2 bag record /tf -o results/downwash/a2/bags/free1
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition free --parts 0-5
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_deploy.py --condition free --parts 6-7
+pixi run -e sim2real python crazyflow_experiments/downwash/usd.py collect /media/<card> --block a2
+pixi run -e sim2real python crazyflow_experiments/downwash/a2_convert.py results/downwash/a2/free_flight1_<time> \
+    --bag results/downwash/a2/bags/free1
+pixi run -e sim2real python crazyflow_experiments/downwash/analyze_a2.py --free results/downwash/a2/free_flight1_<time>/items.csv
+```
+
+The **steady labels** of the hovering victim need no differentiation: with the source still, the
+victim's rotors balance the wake. The force is `R^T (0, 0, m g) - (0, 0, sum f_i)` in its body
+frame, the torques about x and y the negative of the rotors' (crazyflow's mixing matrix), all
+against the part's first reference so that the victim's own trim drops out. They are compared with
+the mean `force_imu` per point and axis: the check of that label on every axis, the only one of
+`F_x`, `F_y`, `tau_x`, `tau_y`. **[VERIFY]** that the real motors are numbered like crazyflow's: a
+hand tilt of the hovering drone shows each torque's sign.
 
 ## Block A1: crazyflow's rpm2thrust on the load cell
 

@@ -38,10 +38,15 @@ from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     model_params,
 )
 from crazyflow_experiments.downwash.sync import ClockFit, change_events, fit_clock  # noqa: E402
-from crazyflow_experiments.downwash.timeline import Pass, victim_hover_point  # noqa: E402
+from crazyflow_experiments.downwash.timeline import (  # noqa: E402
+    Pass,
+    build_flight,
+    victim_hover_point,
+)
 from tests.downwash.fakes import FakeClock, FakeDrone, fake_read_once, patch_pair  # noqa: E402
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 LOG_RATE = 505.5  # Hz, the stabilizer runs on the IMU clock
@@ -250,7 +255,14 @@ def rpm_for(thrust_per_rotor: np.ndarray, coef: np.ndarray) -> np.ndarray:
 
 
 def synthetic_flight(
-    folder: Path, only_source: bool = False, victim_gap: tuple[float, float] | None = None
+    folder: Path,
+    only_source: bool = False,
+    victim_gap: tuple[float, float] | None = None,
+    rows: list[dict] | None = None,
+    hooks: dict | None = None,
+    wake: Callable[[np.ndarray], np.ndarray] | None = None,
+    compensate: bool = False,
+    converter: Callable | None = None,
 ) -> dict:
     """A one-leg flight flown on the fake drones, its SD logs and bag written, then converted.
 
@@ -259,6 +271,13 @@ def synthetic_flight(
         only_source: Fly the source alone.
         victim_gap: Seconds from the crossing over which the victim's card writes nothing, as when
             it stalls.
+        rows: The design rows to fly, a single A3 leg by default.
+        hooks: Keyword arguments of `pair.run_flight`, e.g. the builder of the timelines.
+        wake: The force of the wake on the victim along z in N, from the seconds since the
+            timeline's zero; the A3 pulse after the crossing by default.
+        compensate: Whether the victim's rotors carry the wake, as in a steady hover, instead of
+            the accelerometer alone seeing it.
+        converter: Converts the flight, `a3_convert.convert_flight` by default.
     """
     monkeypatch = pytest.MonkeyPatch()
     clock = FakeClock()
@@ -275,26 +294,25 @@ def synthetic_flight(
     for role, mass in masses.items():
         cfg["drones"][role]["mass_kg"] = mass
         cfg["drones"][role]["thrust_scale"] = thrust_scales[role]
-    rows = build_design(cfg, single=(1.0, 0.8))[0]
+    rows = build_design(cfg, single=(1.0, 0.8))[0] if rows is None else rows
+    hooks = {} if hooks is None else hooks
+    build = hooks.get("build", build_flight)
     victim = (
         None
         if only_source
         else FakeDrone(cfg["drones"]["victim"]["id"], np.array([0.0, 0.0, 0.02]))
     )
     source = FakeDrone(cfg["drones"]["source"]["id"], np.array([-2.0, 0.0, 0.02]))
-    targets = {
-        "victim": victim_hover_point(cfg),
-        "source": np.array([rows[0]["x_start"], 0.0, 1.8]),
-    }
+    targets = {"victim": victim_hover_point(cfg), "source": build(rows, cfg)[1].state(0.0)[0]}
     t_log_start = clock.time()
     takeoff = pair.takeoff_pair(victim, source, targets, cfg)
-    flight = pair.run_flight(victim, source, rows, cfg)
+    flight = pair.run_flight(victim, source, rows, cfg, **hooks)
     t_log_stop = clock.time() + 1.0
     monkeypatch.undo()
 
     records = takeoff.records + flight.records
     t_zero = flight.records[0]["t_wall"] - flight.records[0]["t_perf"]
-    t_cross = t_zero + flight.source_timeline.leg_times(0)["cross"]
+    t_cross = t_zero + flight.source_timeline.leg_times(int(rows[0]["leg"]))["cross"]
     timelines = {"victim": flight.victim_timeline, "source": flight.source_timeline}
     t_takeoff = np.array([r["t_wall"] for r in takeoff.records])
 
@@ -325,9 +343,15 @@ def synthetic_flight(
         pos, vel, accel = truth(role, t_true)
         thrust = masses[role] * (G + accel[:, 2])
         if role == "victim":  # The wake: 30 mN down, 0.25 s after the crossing
-            accel[:, 2] -= (
-                0.03 / masses[role] * np.exp(-0.5 * ((t_true - t_cross - 0.25) / 0.05) ** 2)
+            force = (
+                -0.03 * np.exp(-0.5 * ((t_true - t_cross - 0.25) / 0.05) ** 2)
+                if wake is None
+                else wake(t_true - t_zero)
             )
+            if compensate:
+                thrust = thrust - force
+            else:
+                accel[:, 2] += force / masses[role]
         rpm = np.round(np.tile(rpm_for(thrust / 4, thrust_scales[role] * coef)[:, None], (1, 4)))
         rpm[rng.choice(len(rpm), 20, replace=False), rng.integers(0, 4, 20)] = usd.RPM_INVALID
         echo = onboard_echo(t_send, mm, t_true, rng.uniform(LATENCY[0], LATENCY[1], len(t_send)))
@@ -412,7 +436,8 @@ def synthetic_flight(
         },
     }
     write_outputs(folder, json.loads(json.dumps(meta, default=float)), takeoff, flight)
-    summary = a3_convert.convert_flight(folder, bag, {"victim": None, "source": None}, 0.005)
+    convert = a3_convert.convert_flight if converter is None else converter
+    summary = convert(folder, bag, {"victim": None, "source": None}, 0.005)
     return {"folder": folder, "summary": summary, "clocks": clocks, "rows": rows, "cfg": cfg}
 
 

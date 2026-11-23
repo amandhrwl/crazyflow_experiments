@@ -53,6 +53,7 @@ import numpy as np
 
 from crazyflow_experiments.downwash import (
     A1_RESULTS_DIR,
+    A2_RESULTS_DIR,
     A3_RESULTS_DIR,
     LC_RESULTS_DIR,
     ROLES,
@@ -75,6 +76,8 @@ RECORDINGS = {
     "a1": A1_RESULTS_DIR,
     "a3": A3_RESULTS_DIR,
     "a3_stand": A3_RESULTS_DIR,  # A3 on the stand records next to A3, its meta.json names both cards
+    "a2": A2_RESULTS_DIR,  # A2 uses the A3 card configs; free and stand runs record together
+    "a2_stand": A2_RESULTS_DIR,
     "lc": LC_RESULTS_DIR,
     "hover": HOVER_RESULTS_DIR,
 }

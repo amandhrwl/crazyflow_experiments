@@ -665,6 +665,11 @@ def run_flight(
     cfg: Mapping,
     fixed_victim: NDArray | None = None,
     on_start: Callable[[float], None] | None = None,
+    build: Callable[..., tuple[Timeline, Timeline]] = build_flight,
+    summarise: Callable[[Sequence[Mapping], Mapping, Mapping, Mapping], tuple[dict, list[str]]]
+    | None = None,
+    log: Callable[[Mapping, Mapping, Sequence[str], bool], None] | None = None,
+    close_legs: Sequence[int] | None = None,
 ) -> Flight:
     """Fly the legs of one flight from one loop at the control rate.
 
@@ -685,22 +690,30 @@ def run_flight(
             separation rule then keeps the source above it as above a flying victim.
         on_start: Called with the loop's start on `time.perf_counter`, the timeline's zero, e.g.
             to drive the victim on the stand along the same timeline.
+        build: Builds the victim's and the source's timeline from the rows and the config, with
+            the legs to skip as `skipped`; `build_flight` for A3, `build_static_flight` for A2.
+        summarise: The numbers and flags of a flown leg from its records, the leg's row, its times
+            and the config; `leg_summary` by default.
+        log: Prints a leg's line after it, from its row, numbers, flags and whether it was skipped;
+            the A3 line by default.
+        close_legs: The legs before which the victim's battery is read, by default those at or
+            below `CLOSE_HEIGHT_SEP`.
 
     Returns:
         The records, the abort reason and the per-leg results.
     """
+    summarise = leg_summary if summarise is None else summarise
+    log = _log_leg if log is None else log
     limits = SafetyLimits.from_config(cfg)
     drag = drag_per_speed(cfg["drones"]["model"])
     ctrl_freq = cfg["control"]["ctrl_freq"]
     rows = sorted(rows, key=lambda row: int(row["index_in_flight"]))
     flight = Flight()
-    tl_vic, tl_src = build_flight(rows, cfg)
+    tl_vic, tl_src = build(rows, cfg)
     leg_times = {int(r["leg"]): tl_src.leg_times(int(r["leg"])) for r in rows}
-    close_legs = [
-        int(r["leg"])
-        for r in rows
-        if victim is not None and r["height_sep"] <= CLOSE_HEIGHT_SEP + 1e-9
-    ]
+    if close_legs is None:
+        close_legs = [int(r["leg"]) for r in rows if r["height_sep"] <= CLOSE_HEIGHT_SEP + 1e-9]
+    close_legs = list(close_legs) if victim is not None else []
     readings: dict[int, _VbatReading] = {}
     window = round(TRACKING_WINDOW * ctrl_freq)  # Setpoints sent before this tick's, per drone
     recent = {"source": deque(maxlen=window), "victim": deque(maxlen=window)}
@@ -730,7 +743,7 @@ def run_flight(
                 flight.vbat[leg] = vbat
                 if vbat is None or vbat < cfg["safety"]["vbat_min_close_leg"]:
                     flight.skipped.append(leg)
-                    tl_vic, tl_src = build_flight(rows, cfg, skipped=flight.skipped)
+                    tl_vic, tl_src = build(rows, cfg, skipped=flight.skipped)
                     leg_times = {int(r["leg"]): tl_src.leg_times(int(r["leg"])) for r in rows}
                     logger.warning(f"Leg {leg} skipped: victim battery {vbat} V")
         obs_src = source.obs()
@@ -773,9 +786,9 @@ def run_flight(
                 stats, flags = {}, ["skipped"]
             else:
                 recs = flight.records[first_record.get(leg, len(flight.records)) :]
-                stats, flags = leg_summary(recs, row, leg_times[leg], cfg)
+                stats, flags = summarise(recs, row, leg_times[leg], cfg)
             flight.leg_stats[leg], flight.leg_flags[leg] = stats, flags
-            _log_leg(row, stats, flags, leg in flight.skipped)
+            log(row, stats, flags, leg in flight.skipped)
         sleep_until_next_cycle(tick, ctrl_freq)
     flight.victim_timeline, flight.source_timeline = tl_vic, tl_src
     return flight

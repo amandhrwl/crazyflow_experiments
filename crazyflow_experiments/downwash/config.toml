@@ -49,6 +49,17 @@ min_move_time = 1.5
 return_lane = 1.0                   # m, y offset from the victim of the lane the source flies back in
 seed = 25                           # of the shuffled orders of flights 2 and 3, kept from the old design
 
+[a2]
+# Block A2, the static map: the source holds still at a grid of offsets over the victim, one dwell
+# each. The heights are [a3] height_seps in free flight and [stand] height_seps on the stand, flown
+# far to near; the moves, the takeoff and the safety limits are the [a3] ones.
+offsets_x = [0.0, 0.05, -0.05, 0.10, -0.10, 0.20, -0.20]  # m along x, the y offset is 0
+part_sizes = [4, 3]                 # offsets per part: [ref, 4 offsets] then [ref, 3 offsets, ref]; a spin run flies one part (the victim's battery gives ~45 s of spin)
+reference_dx = -1.0                 # m, the reference dwells before and after: outside the jet, the tare and the drift check
+dwell_s = 3.0                       # s held at each point
+discard_s = 1.0                     # s of it the source settles and the wake builds up, not used
+off_target_tol = 0.05               # m, a dwell whose mean position in the plane is farther from its target is flagged
+
 [sync]
 hop_height = 0.05
 hop_time = 1.0

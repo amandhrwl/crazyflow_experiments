@@ -11,6 +11,7 @@ from tests.conftest import module_requires_env
 module_requires_env("sim2real")
 
 import copy  # noqa: E402
+import dataclasses  # noqa: E402
 import json  # noqa: E402
 import pickle  # noqa: E402
 import signal  # noqa: E402
@@ -23,6 +24,9 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
 from crazyflow_experiments.downwash import a3_deploy, pair, usd  # noqa: E402
+from crazyflow_experiments.downwash.a2_deploy import A2  # noqa: E402
+from crazyflow_experiments.downwash.a2_design import build_design as a2_design  # noqa: E402
+from crazyflow_experiments.downwash.a2_design import retime, select_parts  # noqa: E402
 from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     build_design,
     drag_per_speed,
@@ -712,3 +716,28 @@ def test_deploy_abort_path_lands_stops_logging_and_records(
         assert names.count("land") == 1  # Landed, not dropped
         assert names.index("land") < names.index("close")
         assert names[-1] == "close"
+
+
+def test_deploy_flies_the_static_map_through_the_same_loop(
+    deploy_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+):
+    """A2's block on the fake drones: its timeline, summaries and recording, A3's takeoff and landing."""
+    battery(monkeypatch, 4.0)
+    env = deploy_env
+    items = retime(select_parts(a2_design(env.cfg), [6]), env.cfg)
+    block = dataclasses.replace(A2, results_dir=env.folder)
+    a3_deploy.fly(items, env.cfg, 1, False, Path("design.csv"), block=block)
+    (path,) = env.folder.glob("free_flight1_*/meta.json")
+    meta = json.loads(path.read_text())
+    assert meta["block"] == "A2" and meta["abort_reason"] is None and meta["error"] is None
+    # Every item is flown, with the A2 summary: the source's hold error and the victim's drop
+    assert sorted(int(k) for k in meta["leg_flags"]) == [int(row["leg"]) for row in items]
+    assert not any("not_flown" in flags for flags in meta["leg_flags"].values())
+    stats = meta["leg_stats"][str(int(items[1]["leg"]))]
+    assert set(stats) >= {"error", "std", "n_used", "victim_dz"}
+    assert meta["vbat_close_legs"] == {}  # A2 reads no battery before its items
+    table = meta["timeline"]["source"]
+    assert {seg["phase"] for seg in table if seg["leg"] >= 0} == {"dwell", "move"}
+    for drone in (env.victim, env.source):
+        names = drone.names()
+        assert names.count("land") == 1 and names[-1] == "close"

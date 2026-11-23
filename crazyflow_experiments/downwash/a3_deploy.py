@@ -43,6 +43,7 @@ import socket
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -84,6 +85,34 @@ logging.getLogger("crazyflow_experiments").setLevel(logging.INFO)  # Flight prog
 FIRMWARE_ALERTS = ("[FAIL]", "Locked", "Crashed", "free falling", "tumbled")  # Console lines
 MIN_SPACING = 1.0  # m, horizontal distance between the two drones standing before takeoff
 PATH_CHECK_FREQ = 100.0  # Hz, rate the commanded paths are compared at in the dry run
+
+
+@dataclass(frozen=True)
+class Block:
+    """What differs between the blocks that fly through `fly` and `fly_stand`.
+
+    Attributes:
+        name: Name in the recording's meta.json, e.g. "A3"; the stand's runs add "_stand".
+        results_dir: Where the recordings go; None for A3's, which tests redirect by patching
+            `A3_RESULTS_DIR`.
+        free_stem: Folder stem of a free flight, followed by the flight's number.
+        stand_stem: Folder stem of a run on the stand, followed by the number and the mode.
+        build: Builds the victim's and the source's timeline of the rows, see `pair.run_flight`.
+        plan_stand: Plans a run on the stand from the config, the rows, the stand's and the
+            source's positions, the items to fly and whether the victim spins: the config, rows
+            and spin schedule of the run.
+        items_flag: Command line flag naming the items a refly hint lists.
+        hooks: The keyword arguments of `pair.run_flight` that the block sets, from the rows.
+    """
+
+    name: str
+    results_dir: Path | None
+    free_stem: str
+    stand_stem: str
+    build: Callable
+    plan_stand: Callable
+    items_flag: str
+    hooks: Callable[[Sequence[Mapping]], dict]
 
 
 def leg_distances(rows: Sequence[Mapping], victim: Timeline, source: Timeline) -> list[float]:
@@ -286,8 +315,16 @@ def write_outputs(folder: Path, meta: dict, takeoff: Takeoff | None, flight: Fli
     logger.info(f"Wrote {folder / 'meta.json'} and {folder / 'records.pkl'}")
 
 
-def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool, design: Path):
+def fly(
+    rows: Sequence[Mapping],
+    cfg: dict,
+    flight_index: int,
+    only_source: bool,
+    design: Path,
+    block: Block | None = None,
+):
     """Fly one flight and record it, see the module docstring."""
+    block = A3 if block is None else block
     # Imported here, so the dry run needs neither the radio nor ROS
     from crazyflow_experiments.downwash.pair import (
         connect_pair,
@@ -297,12 +334,14 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
         takeoff_pair,
     )
 
-    folder = new_recording_path(A3_RESULTS_DIR, f"flight{flight_index}", suffix="")
+    folder = new_recording_path(
+        block.results_dir or A3_RESULTS_DIR, f"{block.free_stem}{flight_index}", suffix=""
+    )
     recorded = usd.recording_time(folder)  # Names both card files after the flight
-    _, source_plan = build_flight(rows, cfg)
+    _, source_plan = block.build(rows, cfg)
     targets = {"victim": victim_hover_point(cfg), "source": source_plan.state(0.0)[0]}
     meta = {
-        "block": "A3",
+        "block": block.name,
         "flight": flight_index,
         "only_source": only_source,
         "created": datetime.now().astimezone().isoformat(),
@@ -334,7 +373,7 @@ def fly(rows: Sequence[Mapping], cfg: dict, flight_index: int, only_source: bool
         with ctrl_c_ends_flight():  # Ctrl+C lands both and keeps the records of the legs flown
             takeoff = takeoff_pair(victim, source, targets, cfg)
             if takeoff.error is None:
-                flight = run_flight(victim, source, rows, cfg)
+                flight = run_flight(victim, source, rows, cfg, **block.hooks(rows))
         land_pair(victim, source, cfg)
         landed = True
     finally:
@@ -393,6 +432,7 @@ def fly_stand(
     design: Path,
     mode: str,
     legs: Sequence[int] | None,
+    block: Block | None = None,
 ):
     """Fly one flight, or some of its legs, over the victim on the stand and record it.
 
@@ -400,6 +440,7 @@ def fly_stand(
     following its schedule (`a3_stand.VictimSchedule`), the landing clear of the stand and still
     air again. The victim's card logs throughout, the source's card from its connection.
     """
+    block = A3 if block is None else block
     # Imported here, so the dry run needs neither the radio nor ROS
     import rclpy
     from drone_estimators.ros_nodes.ros2_connector import ROSConnector
@@ -425,15 +466,19 @@ def fly_stand(
     stand_pos = still_position(mocap, names["victim"])
     source_pos = still_position(mocap, names["source"])
     mocap.close()
-    stand_cfg, stand_rows, schedule = plan_stand(cfg, rows, stand_pos, source_pos, legs)
+    stand_cfg, stand_rows, schedule = block.plan_stand(
+        cfg, rows, stand_pos, source_pos, legs, mode == "spin"
+    )
     log_schedule(schedule, stand, mode == "spin")
-    _, source_plan = build_flight(stand_rows, stand_cfg)
-    folder = new_recording_path(A3_RESULTS_DIR, f"stand_flight{flight_index}_{mode}", suffix="")
+    _, source_plan = block.build(stand_rows, stand_cfg)
+    folder = new_recording_path(
+        block.results_dir or A3_RESULTS_DIR, f"{block.stand_stem}{flight_index}_{mode}", suffix=""
+    )
     recorded = usd.recording_time(folder)  # Names both card files after the run
     folder.mkdir()
     blocks = {"victim": "lc", "source": "a3"}
     meta = {
-        "block": "A3_stand",
+        "block": f"{block.name}_stand",
         "flight": flight_index,
         "mode": mode,
         "legs": [int(row["leg"]) for row in stand_rows],
@@ -489,7 +534,13 @@ def fly_stand(
             takeoff = takeoff_pair(None, source, {"source": source_plan.state(0.0)[0]}, stand_cfg)
             if takeoff.error is None:
                 flight = run_flight(
-                    None, source, stand_rows, stand_cfg, fixed_victim=stand_pos, on_start=plan.start
+                    None,
+                    source,
+                    stand_rows,
+                    stand_cfg,
+                    fixed_victim=stand_pos,
+                    on_start=plan.start,
+                    **block.hooks(stand_rows),
                 )
         plan.stop()
         waypoints = a3_stand.landing_waypoints(source.obs()["pos"], stand_pos, stand_cfg)
@@ -532,7 +583,7 @@ def fly_stand(
     if refly := meta["victim_schedule"]["refly_legs"]:
         logger.warning(
             f"Legs {refly} did not spin through their pass: refly them on a fresh battery with "
-            f"--flight {flight_index} --stand --spin --legs {','.join(map(str, refly))}"
+            f"--flight {flight_index} --stand --spin {block.items_flag} {','.join(map(str, refly))}"
         )
     for role, info in meta["usd"].items():
         logger.info(f"SD file of the {role}: {info['files'] or 'unknown, see its card'}")
@@ -611,6 +662,20 @@ def plan_stand(
     _, source_plan = build_flight(stand_rows, stand_cfg)
     schedule = a3_stand.spin_schedule(source_plan, stand_rows, cfg["stand"])
     return stand_cfg, stand_rows, schedule
+
+
+A3 = Block(
+    name="A3",
+    results_dir=None,
+    free_stem="flight",
+    stand_stem="stand_flight",
+    build=build_flight,
+    plan_stand=lambda cfg, rows, stand_pos, source_pos, legs, spin: plan_stand(
+        cfg, rows, stand_pos, source_pos, legs
+    ),
+    items_flag="--legs",
+    hooks=lambda rows: {},
+)
 
 
 def log_schedule(schedule: Sequence[a3_stand.LegSpin], stand: Mapping, spin: bool):

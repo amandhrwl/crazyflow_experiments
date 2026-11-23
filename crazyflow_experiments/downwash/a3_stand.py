@@ -106,15 +106,45 @@ def stand_rows(rows: Sequence[Mapping], cfg: Mapping) -> list[dict]:
     ]
 
 
+def stand_config(cfg: Mapping, stand_pos: ArrayLike) -> dict:
+    """The config of a run over the victim on the stand, a copy.
+
+    The victim's hover point becomes the stand position, the ceiling of the arena the stand's
+    `arena_max_z`, since the passes fly above the stand's height, and the separations of the
+    takeoff the stand's: it climbs to the stand's z plus the largest of `a3.height_seps`, which
+    were the free flights' 1.0 m, 2.52 m, out of the motion capture's reach (22 Nov).
+
+    Args:
+        cfg: The A3 config, with its `[stand]` section.
+        stand_pos: Position of the victim on the stand as (3,), its marker frame.
+    """
+    stand_pos = np.asarray(stand_pos, dtype=float)
+    stand_cfg = copy.deepcopy(dict(cfg))
+    victim = stand_cfg["drones"]["victim"]
+    victim["hover_xy"] = stand_pos[:2].tolist()
+    victim["hover_z"] = float(stand_pos[2])
+    stand_cfg["a3"]["height_seps"] = [float(dz) for dz in cfg["stand"]["height_seps"]]
+    stand_cfg["safety"]["arena_max"] = [
+        *stand_cfg["safety"]["arena_max"][:2],
+        cfg["stand"]["arena_max_z"],
+    ]
+    top = float(stand_pos[2]) + max(cfg["stand"]["height_seps"])
+    if top > cfg["stand"]["arena_max_z"] - CEILING_MARGIN + 1e-9:
+        raise ValueError(
+            f"The highest pass flies at {top:.2f} m, within {CEILING_MARGIN} m of the stand's "
+            f"arena_max_z = {cfg['stand']['arena_max_z']} m"
+        )
+    return stand_cfg
+
+
 def stand_flight(
     cfg: Mapping, rows: Sequence[Mapping], stand_pos: ArrayLike
 ) -> tuple[dict, list[dict]]:
     """Config and design rows of a flight centred on the victim on the stand.
 
-    The victim's hover point becomes the stand position, the passes are shifted along x by its x,
-    and each pass flies `height_sep` above the stand's victim. Only the legs whose separation is in
-    the stand's `height_seps` are kept (at most 0.5 m, user, 21 Nov). The ceiling of the arena is the
-    stand's `arena_max_z`, since the passes fly above the stand's height.
+    The passes are shifted along x by the stand's x, and each pass flies `height_sep` above the
+    stand's victim. Only the legs whose separation is in the stand's `height_seps` are kept (at most
+    0.5 m, user, 21 Nov). See `stand_config` for the config.
 
     Args:
         cfg: The A3 config, with its `[stand]` section.
@@ -125,18 +155,7 @@ def stand_flight(
         The config and the rows, both copies.
     """
     stand_pos = np.asarray(stand_pos, dtype=float)
-    stand_cfg = copy.deepcopy(dict(cfg))
-    victim = stand_cfg["drones"]["victim"]
-    victim["hover_xy"] = stand_pos[:2].tolist()
-    victim["hover_z"] = float(stand_pos[2])
-    # The takeoff climbs to hover_z + the largest separation of `a3.height_seps`: on the stand that
-    # is the stand's, not the free flights' 1.0 m, which sent the source to 2.52 m and out of the
-    # motion capture's reach (22 Nov)
-    stand_cfg["a3"]["height_seps"] = [float(dz) for dz in cfg["stand"]["height_seps"]]
-    stand_cfg["safety"]["arena_max"] = [
-        *stand_cfg["safety"]["arena_max"][:2],
-        cfg["stand"]["arena_max_z"],
-    ]
+    stand_cfg = stand_config(cfg, stand_pos)
     shifted = []
     for row in stand_rows(rows, cfg):
         row = dict(row)
@@ -144,12 +163,6 @@ def stand_flight(
         row["x_end"] = float(row["x_end"]) + stand_pos[0]
         row["z_src"] = float(stand_pos[2]) + float(row["height_sep"])
         shifted.append(row)
-    top = float(stand_pos[2]) + max(cfg["stand"]["height_seps"])
-    if top > cfg["stand"]["arena_max_z"] - CEILING_MARGIN + 1e-9:
-        raise ValueError(
-            f"The highest pass flies at {top:.2f} m, within {CEILING_MARGIN} m of the stand's "
-            f"arena_max_z = {cfg['stand']['arena_max_z']} m"
-        )
     return stand_cfg, shifted
 
 

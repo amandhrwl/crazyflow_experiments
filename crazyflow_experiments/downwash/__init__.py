@@ -33,6 +33,7 @@ ROLES = ("victim", "source")
 CONFIG_PATH = Path(__file__).parent / "config.toml"
 SD_CONFIG_DIR = Path(__file__).parent / "sd"  # config.txt of every card, config_<block>_<role>.txt
 A3_RESULTS_DIR = RESULTS_DIR / "downwash" / "a3"  # Design, notes, bags and one folder per flight
+A2_RESULTS_DIR = RESULTS_DIR / "downwash" / "a2"  # Design, notes, one folder per static map run
 DOWNWASH_PLOTS_DIR = PLOTS_DIR / "downwash"
 A1_CONFIG_PATH = Path(__file__).parent / "a1_config.toml"
 A1_RESULTS_DIR = RESULTS_DIR / "downwash" / "a1"  # NOTES.md, rpm2thrust.toml, one folder per block
