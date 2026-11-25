@@ -38,9 +38,14 @@ over the pass.
 
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py \
-        results/downwash/a3/stand_flight<k>_<still|spin>_<time> [--calibration FILE]
+        results/downwash/a3/stand_flight<k>_<still|spin>_<time> [--calibration FILE] \
+        [--rpm-source sd|radio]
     pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py --combine \
         results/downwash/a3/stand_flight*_*
+
+`--rpm-source radio` takes the rotor rpm from the 100 Hz load cell block of the radio log instead of
+the card (runs flown with `radio.RPM_VARIABLES`); the force still comes from the card, and
+`sync.json` records the source. The 100 Hz rpm are interpolated onto the 500 Hz grid of the legs.
 
 Each run gets `legs/leg<NN>.npz`, `summary.csv` and `sync.json`, and a quicklook in
 `plots/downwash/a3_stand/`. `--combine` merges converted runs, the parts of a flight split across
@@ -69,7 +74,7 @@ import numpy as np
 from crazyflow_experiments.downwash import A3_RESULTS_DIR, DOWNWASH_PLOTS_DIR, plots, usd
 from crazyflow_experiments.downwash.a3_convert import lag, lowpass, resample
 from crazyflow_experiments.downwash.a3_stand import a1_curve
-from crazyflow_experiments.downwash.sync import LOAD_CELL_SYNC, sync_drone
+from crazyflow_experiments.downwash.sync import LOAD_CELL_SYNC, sync_drone, unwrap_ticks
 from crazyflow_experiments.downwash.thrust import rotor_thrust
 
 if TYPE_CHECKING:
@@ -82,6 +87,9 @@ logger = logging.getLogger("crazyflow_experiments.downwash.a3_stand_convert")  #
 logger.setLevel(logging.INFO)
 
 GRID_FREQ = 500.0  # Hz, as A3's legs
+RPM_SOURCES = ("sd", "radio")  # where the rotor rpm come from, see `load_run`
+RADIO_RPM = tuple(f"loadcell/motor.m{i}_rpm" for i in range(1, 5))  # in the 100 Hz load cell block
+RADIO_MAX_GAP = 0.025  # s, the radio's rpm are NaN across longer gaps (100 Hz, 10 ms apart)
 CARD_MAX_GAP = 0.01  # s, the card is NaN across longer gaps (card stalls)
 MOCAP_MAX_GAP = 0.05  # s, the flight records are NaN across longer gaps
 GAP_BEFORE_CROSS = -1.0  # s, card gaps from here to GAP_AFTER_CROSS mark a leg card_gap
@@ -161,7 +169,14 @@ def measured_crossing(
     return cross, float(np.interp(cross, t, speed))
 
 
-def spin_on_delay(t: NDArray, force: NDArray, thrust: NDArray, spin_on: float) -> float:
+def spin_on_delay(
+    t: NDArray,
+    force: NDArray,
+    thrust: NDArray,
+    spin_on: float,
+    t_thrust: NDArray | None = None,
+    thrust_gap: float = CARD_MAX_GAP,
+) -> float:
     """Delay of the load cell behind the rotor thrust at a spin-up, in s.
 
     The card logs both on one clock, and `lag` is the shift of the rpm-predicted `thrust` that
@@ -173,19 +188,30 @@ def spin_on_delay(t: NDArray, force: NDArray, thrust: NDArray, spin_on: float) -
         force: The load cell force in N (N,), any zero.
         thrust: The rotor thrust from the rpm in N (N,).
         spin_on: PC time stamped at the spin-on command.
+        t_thrust: PC times of `thrust` (N,) if they are not `t`, e.g. the rpm from the radio.
+        thrust_gap: Longest gap of `thrust` that is interpolated over, in s.
 
     Returns:
         The delay, positive when the cell is late; NaN if the thrust does not rise in the window.
     """
     t_grid = np.arange(spin_on - CELL_DELAY_BEFORE, spin_on + CELL_DELAY_AFTER, 1 / GRID_FREQ)
-    on_grid = resample(t, thrust, t_grid, CARD_MAX_GAP)
+    t_thrust = t if t_thrust is None else t_thrust
+    on_grid = resample(t_thrust, thrust, t_grid, thrust_gap)
     if not np.isfinite(on_grid).any() or np.nanmax(on_grid) - np.nanmin(on_grid) < MIN_EDGE_N:
         return math.nan
-    return lag(t_grid, resample(t, force, t_grid, CARD_MAX_GAP), t, thrust, CELL_DELAY_MAX)
+    return lag(t_grid, resample(t, force, t_grid, CARD_MAX_GAP), t_thrust, thrust, CELL_DELAY_MAX)
 
 
-def load_run(folder: Path, calibration: Path | None = None) -> dict:
-    """Everything a run's legs are cut from, on PC time."""
+def load_run(folder: Path, calibration: Path | None = None, rpm_source: str = "sd") -> dict:
+    """Everything a run's legs are cut from, on PC time.
+
+    The load cell force always comes from the card at 500 Hz. The rotor rpm come from the card at
+    500 Hz (`rpm_source` "sd") or from the load cell block of the radio log at 100 Hz ("radio",
+    runs since the rpm were added to `radio.LOAD_CELL_VARIABLES`), on the clock of the radio ticks
+    either way. `t_rpm` and `rpm_gap` are the time base and the longest gap of the rpm.
+    """
+    if rpm_source not in RPM_SOURCES:
+        raise ValueError(f"rpm_source {rpm_source!r} is not one of {RPM_SOURCES}")
     meta = json.loads((folder / "meta.json").read_text())
     with open(folder / "records.pkl", "rb") as f:
         records = pickle.load(f)["flight"]
@@ -197,8 +223,17 @@ def load_run(folder: Path, calibration: Path | None = None) -> dict:
     cal = meta["load_cell"] if calibration is None else tomllib.loads(calibration.read_text())
     sync["calibration"] = {"a": cal["a"], "b": cal["b"], "from": str(calibration or "meta.json")}
     t = clock.pc_from_sd(card["t_us"])
-    rpm = np.stack([card[f"motor.m{i}_rpm"] for i in range(1, N_MOTORS + 1)], axis=1).astype(float)
+    if rpm_source == "radio":
+        if missing := [k for k in RADIO_RPM if k not in own]:
+            raise RuntimeError(f"{folder.name}: no {missing} in radio.npz, use the card's rpm")
+        t_rpm, rpm_gap = clock.pc_from_tick(unwrap_ticks(own["loadcell/t_tick_ms"])), RADIO_MAX_GAP
+        rpm = np.stack([own[k] for k in RADIO_RPM], axis=1).astype(float)
+    else:
+        t_rpm, rpm_gap = t, CARD_MAX_GAP
+        rpm = np.stack([card[f"motor.m{i}_rpm"] for i in range(1, N_MOTORS + 1)], axis=1)
+        rpm = rpm.astype(float)
     rpm[rpm == usd.RPM_INVALID] = np.nan
+    sync["rpm_source"] = rpm_source
     coef, fit = a1_curve()
     sync["thrust_curve"] = {"coef": coef.tolist(), "fit": fit}
     t_wall = np.array([r["t_wall"] for r in records])
@@ -207,6 +242,8 @@ def load_run(folder: Path, calibration: Path | None = None) -> dict:
         "sync": sync,
         "t": t,
         "weight_g": cal["a"] * card["loadcell.rawWeight"].astype(float) + cal["b"],
+        "t_rpm": t_rpm,
+        "rpm_gap": rpm_gap,
         "rpm": rpm,
         "thrust_rpm": rotor_thrust(rpm, coef).sum(axis=1),
         "vbat": card["pm.vbatMV"].astype(float) / 1000,
@@ -247,7 +284,7 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     half = cruise_half / row["speed"]
     settled = (run["src_t"] >= cross - half) & (run["src_t"] <= cross + half)
     baseline = (events["spin_on"] + stand["spin_settle_s"], pass_start)
-    t, weight = run["t"], run["weight_g"]
+    t, weight, t_rpm = run["t"], run["weight_g"], run["t_rpm"]
     tare_g = float(window_mean(t, weight, events["tare_start"], events["tare_end"]))
     force = (weight - tare_g) * 1e-3 * G
     # Up to the stop of the motors, before their spin-down drops the force. Runs before 21 Nov
@@ -258,13 +295,13 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     t_rel = t_grid - cross
     on_grid = {
         "force_z": resample(t, force, t_grid, CARD_MAX_GAP),
-        "thrust_rpm": resample(t, run["thrust_rpm"], t_grid, CARD_MAX_GAP),
-        "rpm": resample(t, run["rpm"], t_grid, CARD_MAX_GAP),
+        "thrust_rpm": resample(t_rpm, run["thrust_rpm"], t_grid, run["rpm_gap"]),
+        "rpm": resample(t_rpm, run["rpm"], t_grid, run["rpm_gap"]),
         "src_pos_rel": resample(run["src_t"], src_rel, t_grid, MOCAP_MAX_GAP),
         "src_vel": resample(run["src_t"], run["src_vel"], t_grid, MOCAP_MAX_GAP),
     }
     base_force = float(window_mean(t, force, *baseline))
-    base_thrust = float(window_mean(t, run["thrust_rpm"], *baseline))
+    base_thrust = float(window_mean(t_rpm, run["thrust_rpm"], *baseline))
     arrays = {"t": t_rel, **on_grid}
     arrays["dforce_z"] = on_grid["force_z"] - base_force
     arrays["dthrust_rpm"] = on_grid["thrust_rpm"] - base_thrust
@@ -272,13 +309,15 @@ def cut_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping) -> tupl
     window = (pass_start - cross, stop - cross)
     peak_force, t_peak = peak(t_rel, arrays["dforce_z"], *window)
     peak_wake, t_peak_wake = peak(t_rel, arrays["dforce_wake"], *window)
-    drift = rpm_drift(t, run["rpm"], baseline, (pass_start, pass_end))
+    drift = rpm_drift(t_rpm, run["rpm"], baseline, (pass_start, pass_end))
     # A card stall only spoils the leg in the baseline or while the wake acts around the crossing
     near = (t_grid < baseline[1]) | ((t_rel >= GAP_BEFORE_CROSS) & (t_rel <= GAP_AFTER_CROSS))
-    in_pass = (t >= pass_start) & (t <= pass_end)
+    in_pass = (t_rpm >= pass_start) & (t_rpm <= pass_end)
     rpm_pass = run["rpm"][in_pass]
     delay = (
-        spin_on_delay(t, force, run["thrust_rpm"], events["spin_on"])
+        spin_on_delay(
+            t, force, run["thrust_rpm"], events["spin_on"], t_rpm, run["rpm_gap"]
+        )
         if meta["mode"] == "spin" and outcome["spun"]
         else math.nan
     )
@@ -345,10 +384,12 @@ def quicklook(rows: Sequence[Mapping], legs: Mapping[int, dict], title: str, pat
     return plots.save(fig, path)
 
 
-def convert(folder: Path, calibration: Path | None = None) -> list[dict]:
+def convert(
+    folder: Path, calibration: Path | None = None, rpm_source: str = "sd"
+) -> list[dict]:
     """Cut every leg of a run, write its arrays, summary and sync report and the quicklook."""
     folder = Path(folder)
-    run = load_run(folder, calibration)
+    run = load_run(folder, calibration, rpm_source)
     meta = run["meta"]
     meta["folder"] = str(folder)
     schedule = {int(s["leg"]): s for s in meta["victim_schedule"]["schedule"]}
@@ -456,13 +497,16 @@ def main():
     parser = argparse.ArgumentParser(description="Convert A3 runs on the stand.")
     parser.add_argument("folders", type=Path, nargs="+", help="Run folders")
     parser.add_argument("--calibration", type=Path, help="calibscale.py file replacing a and b")
+    parser.add_argument(
+        "--rpm-source", choices=RPM_SOURCES, default="sd", help="Where the rotor rpm come from"
+    )
     parser.add_argument("--combine", action="store_true", help="Merge converted runs")
     args = parser.parse_args()
     if args.combine:
         combine(args.folders)
         return
     for folder in args.folders:
-        convert(folder, args.calibration)
+        convert(folder, args.calibration, args.rpm_source)
 
 
 if __name__ == "__main__":
