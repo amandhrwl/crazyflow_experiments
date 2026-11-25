@@ -33,7 +33,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TOC_CACHE = Path(deploy_crazyflie.__file__).parent / ".cache"  # Shared with `Drone`
-LOAD_CELL_VARIABLES = ("loadcell.rawWeight", "loadcell.weight")
+# The load cell block carries the four rotor rpm as well (uint16, 65535 = no reading, as on the
+# card): 4 + 4 + 4 * 2 = 16 of the 26 bytes, so the thrust of a spin run does not need the card
+RPM_VARIABLES = tuple(f"motor.m{i}_rpm" for i in range(1, 5))
+LOAD_CELL_VARIABLES = ("loadcell.rawWeight", "loadcell.weight", *RPM_VARIABLES)
 # Sample rate of the load cell, the battery and the supervisor's state
 STATUS_VARIABLES = ("loadcell.rate", "pm.vbat", "supervisor.info")
 STATUS_PERIOD_MS = 500
