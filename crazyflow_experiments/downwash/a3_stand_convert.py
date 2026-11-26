@@ -73,7 +73,7 @@ import numpy as np
 
 from crazyflow_experiments.downwash import A3_RESULTS_DIR, DOWNWASH_PLOTS_DIR, plots, usd
 from crazyflow_experiments.downwash.a3_convert import lag, lowpass, resample
-from crazyflow_experiments.downwash.a3_stand import a1_curve
+from crazyflow_experiments.downwash.a3_stand import A1_CURVE_PATH, a1_curve
 from crazyflow_experiments.downwash.sync import LOAD_CELL_SYNC, sync_drone, unwrap_ticks
 from crazyflow_experiments.downwash.thrust import rotor_thrust
 
@@ -202,13 +202,19 @@ def spin_on_delay(
     return lag(t_grid, resample(t, force, t_grid, CARD_MAX_GAP), t_thrust, thrust, CELL_DELAY_MAX)
 
 
-def load_run(folder: Path, calibration: Path | None = None, rpm_source: str = "sd") -> dict:
+def load_run(
+    folder: Path,
+    calibration: Path | None = None,
+    rpm_source: str = "sd",
+    curve_path: Path = A1_CURVE_PATH,
+) -> dict:
     """Everything a run's legs are cut from, on PC time.
 
     The load cell force always comes from the card at 500 Hz. The rotor rpm come from the card at
     500 Hz (`rpm_source` "sd") or from the load cell block of the radio log at 100 Hz ("radio",
     runs since the rpm were added to `radio.LOAD_CELL_VARIABLES`), on the clock of the radio ticks
-    either way. `t_rpm` and `rpm_gap` are the time base and the longest gap of the rpm.
+    either way. `t_rpm` and `rpm_gap` are the time base and the longest gap of the rpm. `card` is
+    the decoded victim card, `curve_path` the A1 thrust curve (another checkout's data, e.g.).
     """
     if rpm_source not in RPM_SOURCES:
         raise ValueError(f"rpm_source {rpm_source!r} is not one of {RPM_SOURCES}")
@@ -234,7 +240,7 @@ def load_run(folder: Path, calibration: Path | None = None, rpm_source: str = "s
         rpm = rpm.astype(float)
     rpm[rpm == usd.RPM_INVALID] = np.nan
     sync["rpm_source"] = rpm_source
-    coef, fit = a1_curve()
+    coef, fit = a1_curve(curve_path)
     sync["thrust_curve"] = {"coef": coef.tolist(), "fit": fit}
     t_wall = np.array([r["t_wall"] for r in records])
     return {
@@ -251,6 +257,7 @@ def load_run(folder: Path, calibration: Path | None = None, rpm_source: str = "s
         "src_t": t_wall,
         "src_pos": np.array([r["source"]["pos"] for r in records]),
         "src_vel": np.array([r["source"]["vel"] for r in records]),
+        "card": card,
     }
 
 
