@@ -3,6 +3,8 @@
 - Step 9: the cell table of `notebooks/a3_cell_runs.ipynb` (cell 14) recomputed from the exported
   legs, against the same table computed from the viewer files the notebook read
   (`results/downwash/a3_evening22_states/`); then the table with the new `fz_wake` and the tail.
+  Only with `--states`: the viewer files exist for the 22 Nov evening session alone, so a dataset
+  of other runs skips the step unless matching viewer files are made for them.
 - The old against the new wake label per S1 cell: peak and centroid.
 - Step 1b.5: Welch spectra of the load cell's new samples in `window_pre`, S0 and S1.
 - Step 4.5: the source's rotor thrust against its mocap thrust over the cruise.
@@ -11,7 +13,7 @@
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/legs/report.py \
         ../crazyflow_experiments_data/legs/legs_v1 \
-        --states ../crazyflow_experiments_data/results/downwash/a3_evening22_states --out report.md
+        [--states ../crazyflow_experiments_data/results/downwash/a3_evening22_states] --out report.md
 """
 
 from __future__ import annotations
@@ -427,11 +429,20 @@ def flag_table(legs: Sequence[dict]) -> str:
 
 
 def report(
-    folder: Path, states_dir: Path, slow_fast: Sequence[str] | None = None
+    folder: Path, states_dir: Path | None, slow_fast: Sequence[str] | None = None
 ) -> tuple[str, dict]:
-    """Every section as markdown, figures written into the dataset folder."""
+    """Every section as markdown, figures written into the dataset folder.
+
+    Without `states_dir` the Step 9 regression against the viewer files is skipped.
+    """
     legs = load_legs(folder)
-    text9, result9 = step9(legs, states_dir)
+    if states_dir is None:
+        text9, result9 = (
+            "Skipped: no viewer files (`--states`) for these runs.\n",
+            {"mismatches": []},
+        )
+    else:
+        text9, result9 = step9(legs, states_dir)
     spectra_text, fig, _ = resonance(legs)
     fig.savefig(folder / "quicklook_resonance.png", dpi=120)
     plt.close(fig)
@@ -458,7 +469,9 @@ def main():
     """Command line: write the report's markdown and the figures."""
     parser = argparse.ArgumentParser(description="Report on an exported LEGS_FORMAT dataset.")
     parser.add_argument("folder", type=Path)
-    parser.add_argument("--states", type=Path, required=True, help="a3_evening22_states folder")
+    parser.add_argument(
+        "--states", type=Path, help="Viewer files of the runs (a3_evening22_states); else no Step 9"
+    )
     parser.add_argument("--out", type=Path, required=True, help="Markdown output")
     args = parser.parse_args()
     text, result = report(args.folder, args.states)

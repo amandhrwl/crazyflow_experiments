@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from scipy.ndimage import median_filter
 
 from crazyflow_experiments.downwash import usd
 from crazyflow_experiments.downwash.a3_convert import (
@@ -29,6 +28,7 @@ from crazyflow_experiments.downwash.a3_convert import (
     resample,
     setpoint_echo,
 )
+from crazyflow_experiments.downwash.a3_stand_convert import despike_rpm
 from crazyflow_experiments.downwash.sync import fit_clock
 from crazyflow_experiments.downwash.thrust import rotor_thrust
 
@@ -43,12 +43,6 @@ if TYPE_CHECKING:
 
 N_MOTORS = 4
 LOG_HEADER = 0xBC  # First byte of a uSD log file, see `usd._parse`
-# A reading this far off the median of its five neighbours is a telemetry glitch, not the rotor:
-# spinning rotors stay within 950 rpm of it (22 Nov, every spin run), the glitches jump 17000 to
-# 45000 rpm for one record (4 on the victim cards of the 13 spin runs)
-RPM_SPIKE = 3000.0  # rpm
-RPM_SPIKE_MIN = 3000.0  # rpm, only while the rotor turns
-RPM_SPIKE_WINDOW = 5  # Records of the running median
 
 
 def has_card(folder: Path, meta: Mapping) -> bool:
@@ -86,19 +80,6 @@ def load_source_card(folder: Path, meta: Mapping, records: Mapping) -> tuple[Onb
     prior = usd.cards(meta)["source"]["t_wall_start"] - log.t[0]
     fit = fit_clock(*setpoint_echo(records["takeoff"] + records["flight"], "source", log), prior)
     return log, fit
-
-
-def despike_rpm(rpm: NDArray) -> tuple[NDArray, NDArray]:
-    """Mark single-record telemetry glitches of the rotor rpm (N, 4) invalid (NaN).
-
-    Returns:
-        The rpm with the glitches NaN, and where the glitches are (N, 4).
-    """
-    rpm = np.array(rpm, dtype=float)
-    median = median_filter(np.nan_to_num(rpm), size=(RPM_SPIKE_WINDOW, 1), mode="nearest")
-    spike = (np.abs(rpm - median) > RPM_SPIKE) & (median > RPM_SPIKE_MIN)
-    rpm[spike] = np.nan
-    return rpm, spike
 
 
 def card_signals(

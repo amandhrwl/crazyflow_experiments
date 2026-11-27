@@ -148,6 +148,7 @@ def fake_run(
         "weight_g": weight_g,
         "t_rpm": t,
         "rpm": rotor,
+        "rpm_spike": np.zeros(rotor.shape, dtype=bool),  # Clean: no telemetry glitches
         "thrust_rpm": thrust,
         "t_zero": T_ZERO,
         "src_t": t_rec,

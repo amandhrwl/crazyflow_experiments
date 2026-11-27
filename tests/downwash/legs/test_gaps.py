@@ -60,7 +60,7 @@ def test_rpm_stall_keeps_fz_wake_nan_local():
 
 
 def test_rpm_glitch_becomes_a_filled_dropout():
-    from crazyflow_experiments.downwash.legs.source_sd import despike_rpm
+    from crazyflow_experiments.downwash.a3_stand_convert import despike_rpm
 
     rpm = np.full((100, 4), 17000.0) + np.arange(100)[:, None]
     rpm[40, 2] = 62000.0  # A telemetry glitch

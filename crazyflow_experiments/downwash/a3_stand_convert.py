@@ -36,6 +36,10 @@ delay of the cell's filter and the stand's response, `cell_delay_s` per leg and 
 run shows in `rpm_pass_mean` and `rpm_pass_valid`, the mean rpm and the fraction of valid readings
 over the pass.
 
+Single-record telemetry glitches of the rpm (`despike_rpm`, 17000 to 45000 rpm jumps for one record)
+are dropouts, NaN, before anything is computed from the rpm. The legs export (`legs/export.py`)
+reads the same despiked rpm and the glitch mask from `load_run`.
+
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/a3_stand_convert.py \
         results/downwash/a3/stand_flight<k>_<still|spin>_<time> [--calibration FILE] \
@@ -70,6 +74,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy.ndimage import median_filter
 
 from crazyflow_experiments.downwash import A3_RESULTS_DIR, DOWNWASH_PLOTS_DIR, plots, usd
 from crazyflow_experiments.downwash.a3_convert import lag, lowpass, resample
@@ -101,9 +106,28 @@ CELL_DELAY_MAX = 0.3  # s, delays searched
 MIN_EDGE_N = 0.2  # N the rpm-predicted thrust must rise over the fit window to count as an edge
 G = 9.81  # m/s^2, grams of force to N
 N_MOTORS = 4
+# A reading this far off the median of its five neighbours is a telemetry glitch, not the rotor:
+# spinning rotors stay within 950 rpm of it (22 Nov, every spin run), the glitches jump 17000 to
+# 45000 rpm for one record (4 on the victim cards of the 13 spin runs)
+RPM_SPIKE = 3000.0  # rpm
+RPM_SPIKE_MIN = 3000.0  # rpm, only while the rotor turns
+RPM_SPIKE_WINDOW = 5  # Records of the running median
 STAND_PLOTS_DIR = DOWNWASH_PLOTS_DIR / "a3_stand"
 COMBINED_PATH = A3_RESULTS_DIR / "stand_summary.csv"
 LEG_KEYS = ("leg", "flight", "index_in_flight", "cell", "speed", "height_sep", "repeat")
+
+
+def despike_rpm(rpm: NDArray) -> tuple[NDArray, NDArray]:
+    """Mark single-record telemetry glitches of the rotor rpm (N, 4) invalid (NaN).
+
+    Returns:
+        The rpm with the glitches NaN, and where the glitches are (N, 4).
+    """
+    rpm = np.array(rpm, dtype=float)
+    median = median_filter(np.nan_to_num(rpm), size=(RPM_SPIKE_WINDOW, 1), mode="nearest")
+    spike = (np.abs(rpm - median) > RPM_SPIKE) & (median > RPM_SPIKE_MIN)
+    rpm[spike] = np.nan
+    return rpm, spike
 
 
 def window_mean(t: NDArray, x: NDArray, t0: float, t1: float) -> NDArray:
@@ -213,7 +237,8 @@ def load_run(
     The load cell force always comes from the card at 500 Hz. The rotor rpm come from the card at
     500 Hz (`rpm_source` "sd") or from the load cell block of the radio log at 100 Hz ("radio",
     runs since the rpm were added to `radio.LOAD_CELL_VARIABLES`), on the clock of the radio ticks
-    either way. `t_rpm` and `rpm_gap` are the time base and the longest gap of the rpm. `card` is
+    either way. `t_rpm` and `rpm_gap` are the time base and the longest gap of the rpm, whose
+    telemetry glitches are NaN (`despike_rpm`, `rpm_spike` marks where they were). `card` is
     the decoded victim card, `curve_path` the A1 thrust curve (another checkout's data, e.g.).
     """
     if rpm_source not in RPM_SOURCES:
@@ -239,7 +264,9 @@ def load_run(
         rpm = np.stack([card[f"motor.m{i}_rpm"] for i in range(1, N_MOTORS + 1)], axis=1)
         rpm = rpm.astype(float)
     rpm[rpm == usd.RPM_INVALID] = np.nan
+    rpm, rpm_spike = despike_rpm(rpm)
     sync["rpm_source"] = rpm_source
+    sync["rpm_spikes"] = [int(n) for n in rpm_spike.sum(axis=0)]
     coef, fit = a1_curve(curve_path)
     sync["thrust_curve"] = {"coef": coef.tolist(), "fit": fit}
     t_wall = np.array([r["t_wall"] for r in records])
@@ -251,6 +278,7 @@ def load_run(
         "t_rpm": t_rpm,
         "rpm_gap": rpm_gap,
         "rpm": rpm,
+        "rpm_spike": rpm_spike,
         "thrust_rpm": rotor_thrust(rpm, coef).sum(axis=1),
         "vbat": card["pm.vbatMV"].astype(float) / 1000,
         "t_zero": float(np.median([r["t_wall"] - r["t_perf"] for r in records])),

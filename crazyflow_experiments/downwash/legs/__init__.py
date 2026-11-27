@@ -27,7 +27,20 @@ G = 9.81  # m/s^2, grams of force to N, as `a3_stand_convert`
 MOUNT_SIGN = 1  # The calibrated reading already points along the force (LEGS_FORMAT §6.2)
 # The 22 Nov evening session: the current design (Δz 0.25 and 0.5 m, 0.5 to 2.0 m/s, the stand at
 # x = 0.47 to 0.54 m). The runs of 21 Nov and of 22 Nov 00:00 to 00:19 flew the earlier design.
-DEFAULT_RUNS = "stand_flight*_2026-11-22_2*"
+EVENING22_RUNS = "stand_flight*_2026-11-22_2*"
+# The runs of every dataset version, so a version re-exports from the same runs. legs_v2 re-exports
+# legs_v1 with the rpm glitches removed in `a3_stand_convert.load_run`. A version that is not listed
+# names its runs with `export.py --runs <glob>`.
+VERSION_RUNS = {"legs_v1": EVENING22_RUNS, "legs_v2": EVENING22_RUNS}
+
+
+def version_runs(version: str, pattern: str | None = None) -> str:
+    """Glob of a dataset version's runs: `pattern` if given, else the version's in `VERSION_RUNS`."""
+    if pattern is not None:
+        return pattern
+    if version not in VERSION_RUNS:
+        raise ValueError(f"{version} has no runs in VERSION_RUNS: name them with --runs <glob>")
+    return VERSION_RUNS[version]
 
 
 def runs_dir(data: Path) -> Path:

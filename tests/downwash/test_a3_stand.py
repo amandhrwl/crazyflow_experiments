@@ -19,6 +19,7 @@ from crazyflow_experiments.downwash.a3_design import (  # noqa: E402
     load_config,
 )
 from crazyflow_experiments.downwash.a3_stand_convert import (  # noqa: E402
+    CARD_MAX_GAP,
     cell_delay_report,
     cut_leg,
     merge_runs,
@@ -329,6 +330,8 @@ def synthetic_leg(mode: str = "spin", crosses: bool = True) -> tuple[dict, dict,
         },
         "t": t,
         "weight_g": 120.0 + force_n / 9.81 * 1e3,  # The tare's zero, 120 g, drops out
+        "t_rpm": t,
+        "rpm_gap": CARD_MAX_GAP,
         "rpm": rpm,
         "thrust_rpm": thrust,
         "vbat": np.full(len(t), 3.8),

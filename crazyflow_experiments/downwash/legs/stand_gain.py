@@ -30,7 +30,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from crazyflow_experiments.downwash.a3_stand_convert import load_run
-from crazyflow_experiments.downwash.legs import DEFAULT_RUNS, MOUNT_SIGN, G, a1_curve_path, runs_dir
+from crazyflow_experiments.downwash.legs import (
+    EVENING22_RUNS,
+    MOUNT_SIGN,
+    G,
+    a1_curve_path,
+    runs_dir,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -225,7 +231,7 @@ def main():
     """Command line: fit the edges of the selected spin runs and print the summary as JSON."""
     parser = argparse.ArgumentParser(description="Stand gain and delay at the motor edges.")
     parser.add_argument("--data", type=Path, required=True, help="crazyflow_experiments_data")
-    parser.add_argument("--runs", default=DEFAULT_RUNS, help="Glob of run folders")
+    parser.add_argument("--runs", default=EVENING22_RUNS, help="Glob of run folders")
     parser.add_argument("--out", type=Path, help="Write the edges and summary as JSON here")
     args = parser.parse_args()
     folders = sorted(runs_dir(args.data).glob(args.runs))

@@ -23,7 +23,7 @@ Nothing is deleted: every flown leg is written, failures and duplicates flagged.
 
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/legs/export.py \
-        --data ../crazyflow_experiments_data --version legs_v1 [--runs GLOB] [--overwrite]
+        --data ../crazyflow_experiments_data --version legs_v2 [--runs GLOB] [--overwrite]
 """
 
 from __future__ import annotations
@@ -62,7 +62,6 @@ from crazyflow_experiments.downwash.a3_convert import (
 from crazyflow_experiments.downwash.a3_design import model_params
 from crazyflow_experiments.downwash.a3_stand_convert import load_run, measured_crossing
 from crazyflow_experiments.downwash.legs import (
-    DEFAULT_RUNS,
     FORMAT,
     FORMAT_VERSION,
     GRID_FREQ,
@@ -71,11 +70,11 @@ from crazyflow_experiments.downwash.legs import (
     a1_curve_path,
     dataset_dir,
     runs_dir,
+    version_runs,
 )
 from crazyflow_experiments.downwash.legs.chain import chain, chain_test, stand_hash
 from crazyflow_experiments.downwash.legs.source_sd import (
     card_signals,
-    despike_rpm,
     has_card,
     load_source_card,
     mocap_thrust,
@@ -369,7 +368,7 @@ def build_leg(run: Mapping, row: Mapping, spin: Mapping, outcome: Mapping, ctx: 
     rpm_gaps = {"victim": [0] * 4, "source": [0] * 4}
     rpm_spikes = {"victim": [0] * 4, "source": [0] * 4}
     if mode == "spin":
-        raw, spikes = despike_rpm(run["rpm"])
+        raw, spikes = run["rpm"], run["rpm_spike"]  # Despiked by `load_run`
         in_leg = (run["t_rpm"] >= t_pc[0]) & (run["t_rpm"] <= t_pc[-1])
         rpm_spikes["victim"] = [int(x) for x in spikes[in_leg].sum(axis=0)]
         filled = np.stack([fill_dropouts(raw[:, i], RPM_MAX_DROPOUT) for i in range(4)], axis=1)
@@ -751,7 +750,7 @@ def write_dataset(out: Path, legs: Sequence[dict], header: Mapping, stand: Mappi
 def export(
     data: Path,
     version: str,
-    pattern: str = DEFAULT_RUNS,
+    pattern: str | None = None,
     overwrite: bool = False,
     accept_gain: bool = False,
     out: Path | None = None,
@@ -761,7 +760,8 @@ def export(
     Args:
         data: The data repository.
         version: Dataset version, e.g. "legs_v1".
-        pattern: Glob of the run folders under `results/downwash/a3/`.
+        pattern: Glob of the run folders under `results/downwash/a3/`; the version's runs in
+            `VERSION_RUNS` if None.
         overwrite: Replace an existing, untagged version folder.
         accept_gain: Write even when the gain ratio is off 1 by more than `GAIN_TOL`.
         out: Folder to write instead of `legs/<version>/` of the data repository (drafts, tests).
@@ -780,6 +780,7 @@ def export(
     ).stdout.strip()
     if tags:
         raise RuntimeError(f"{version} is tagged in {data}: it is read-only")
+    pattern = version_runs(version, pattern)
     folders = sorted(runs_dir(data).glob(pattern))
     if not folders:
         raise FileNotFoundError(f"No runs match {pattern} in {runs_dir(data)}")
@@ -864,8 +865,8 @@ def main():
     """Command line, see the module docstring."""
     parser = argparse.ArgumentParser(description="Export the A3 stand legs in LEGS_FORMAT.")
     parser.add_argument("--data", type=Path, required=True, help="crazyflow_experiments_data")
-    parser.add_argument("--version", default="legs_v1", help="Dataset version folder")
-    parser.add_argument("--runs", default=DEFAULT_RUNS, help="Glob of the run folders")
+    parser.add_argument("--version", required=True, help="Dataset version folder, e.g. legs_v2")
+    parser.add_argument("--runs", help="Glob of the run folders, else the version's VERSION_RUNS")
     parser.add_argument("--overwrite", action="store_true", help="Replace an untagged version")
     parser.add_argument("--accept-gain", action="store_true", help="Ignore the gain ratio check")
     parser.add_argument("--report", type=Path, help="Write the duplicates and gain here as JSON")
