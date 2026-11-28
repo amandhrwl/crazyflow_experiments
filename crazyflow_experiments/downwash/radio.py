@@ -44,6 +44,8 @@ CAN_ARM, ARMED, CAN_FLY = 0x0001, 0x0002, 0x0008  # Bits of supervisor.info
 ARM_TIMEOUT = 4.0  # s, the arming waits up to 2 s for the motors to idle in their rpm range
 # s between the zero setpoints that keep the supervisor's watchdog from locking the spinning victim
 SETPOINT_PERIOD = 0.05
+# radio samples of the load cell a check needs, 100 Hz gives about 100 a second
+MIN_LOAD_CELL_SAMPLES = 10
 
 
 def uri(radio: int, channel: int, drone_id: int) -> str:
@@ -175,6 +177,35 @@ class Victim:
                 for name, variables, period_ms in extra_blocks
             ),
         ]
+
+    def check_load_cell(self, seconds: float = 1.0) -> float:
+        """Check that the load cell delivers a live signal, and return its weight at rest.
+
+        A cell the deck cannot read (a loose cable, a deck that did not initialise) reports one
+        constant, 0 in the A2 runs of 28 Nov, which the card then records as well: such a run holds
+        no force. A cell that reads has noise, so its raw samples differ.
+
+        Args:
+            seconds: Window of the latest radio samples that is checked.
+
+        Returns:
+            Mean `loadcell.weight` over the window, in g.
+
+        Raises:
+            RuntimeError: Too few samples arrived, or the raw weight did not change in the window.
+        """
+        raw = self.radio_log.recent("loadcell.rawWeight", seconds)
+        if len(raw) < MIN_LOAD_CELL_SAMPLES:
+            raise RuntimeError(
+                f"{self.name}: {len(raw)} load cell samples in {seconds} s, expected at least "
+                f"{MIN_LOAD_CELL_SAMPLES}"
+            )
+        if np.ptp(raw) == 0.0:
+            raise RuntimeError(
+                f"{self.name}: the load cell reads the constant {raw[0]:g} over {len(raw)} "
+                "samples: check its cable and the deck, power-cycle the victim"
+            )
+        return float(np.mean(self.radio_log.recent("loadcell.weight", seconds)))
 
     def spin(self, pwm: int | Sequence[int]):
         """Arm the victim and run its motors at `pwm` on the load cell, until `stop_spin`.

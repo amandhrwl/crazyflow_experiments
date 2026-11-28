@@ -61,6 +61,36 @@ dwell_s = 3.0                       # s held at each point
 discard_s = 1.0                     # s of it the source settles and the wake builds up, not used
 off_target_tol = 0.05               # m, a dwell whose mean position in the plane is farther from its target is flagged
 
+# Series after the map, in this order, numbered on from its parts. Each is flown at its `heights`,
+# far to near, as the map is: per height the parts of `part_sizes`, each led by a reference at
+# `reference_dx`, the last also closed by one. A series offsets along x (`offsets_x`, at `dy`) or,
+# with `offsets_y`, along y (at `dx`). All of them are stand series (still = S0, spin = S1) and
+# fly at their own heights, whatever [stand] height_seps says.
+[[a2.series]]
+name = "s0_profile"                 # S0 profile: 9 offsets, 3 references
+heights = [0.75, 0.60]
+offsets_x = [-0.20, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.20]
+part_sizes = [4, 5]
+
+[[a2.series]]
+name = "s0_repeat"                  # same scheme at 0.50 m: the A2 positions were 4-7 cm off nominal, this checks repeatability and the +10 mm axis offset
+heights = [0.50]
+offsets_x = [-0.20, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.20]
+part_sizes = [4, 5]
+
+[[a2.series]]
+name = "s0_scan_y"                  # sideways scan at 0.50 m, at dx = +0.01: separates the x and y parts of the offset
+heights = [0.50]
+dx = 0.01
+offsets_y = [0.0, -0.04, 0.04, -0.08, 0.08]
+part_sizes = [5]
+
+[[a2.series]]
+name = "s1_map"                     # S1 at 0.60 and 0.75 m with the A2 offsets and two-part scheme: 2 spin runs per height, 4 runs
+heights = [0.75, 0.60]
+offsets_x = [0.0, 0.05, -0.05, 0.10, -0.10, 0.20, -0.20]
+part_sizes = [4, 3]
+
 [sync]
 hop_height = 0.05
 hop_time = 1.0
@@ -109,5 +139,5 @@ baseline_s = 2.0                    # the source's hover before the pass lasts 2
 spin_after_s = 1.5                  # the wake reaches the victim 0.1 to 0.35 s after the source (arrival_s)
 rest_gap_s = 3.0                    # s from a leg's motor stop to the next tare, for the battery to recover
 vbat_rest_min = 3.6                 # V at rest in the tare; below it the remaining legs fly without spinning
-vbat_load_min = 3.4                 # V under load (A1's abort): stops the victim's motors, never the source
+vbat_load_min = 3.2                 # V under load: stops the victim's motors, never the source. 3.4 V (A1's abort) cut the A2 spin runs of 28 Nov after 7-20 s, the packs sag to 3.4 V
 battery_spin_s = 45.0               # [VERIFY] s of hover spin one battery gives, A1: ~1 min from 4.0 to 3.4 V with rising thrust

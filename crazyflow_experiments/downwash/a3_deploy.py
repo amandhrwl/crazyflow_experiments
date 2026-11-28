@@ -523,6 +523,7 @@ def fly_stand(
             raise RuntimeError(
                 f"The victim's battery is at {vbat:.2f} V, below {stand['vbat_rest_min']} V"
             )
+        logger.info(f"Victim load cell {victim.check_load_cell():.2f} g at rest")
         times["victim"]["t_wall_start"] = usd.start_logging(victim.cf, victim.name, recorded)
         t0 = time.time()
         time.sleep(stand["baseline_time"])

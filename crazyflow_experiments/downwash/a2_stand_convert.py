@@ -60,7 +60,7 @@ logger.setLevel(logging.INFO)
 STAND_PLOTS_DIR = DOWNWASH_PLOTS_DIR / "a2_stand"
 MODES = {"still": "S0", "spin": "S1"}
 MIN_SAMPLES = 50  # Card samples a dwell's used seconds need, at about 500 Hz
-ITEM_KEYS = ("leg", "part", "kind", "height_sep", "dx")
+ITEM_KEYS = ("leg", "part", "series", "kind", "height_sep", "dx", "dy")
 
 
 def window(t: NDArray, t0: float, t1: float) -> NDArray:
@@ -259,6 +259,9 @@ def combine(folders: Sequence[Path]) -> dict[str, list[dict]]:
         with open(Path(folder) / "items.csv", newline="") as f:
             for row in csv.DictReader(f):
                 if row["status"] == "ok":
+                    # Runs converted before the series existed are the map, along x
+                    row.setdefault("series", "map")
+                    row.setdefault("dy", "0.0")
                     maps[MODES[row["mode"]]].append(row)
     for name, rows in maps.items():
         rows.sort(key=lambda r: (-float(r["height_sep"]), float(r["dx"]), r["run"]))

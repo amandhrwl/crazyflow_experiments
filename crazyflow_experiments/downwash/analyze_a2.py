@@ -22,8 +22,16 @@ points within 0.05 m of the axis, with the model's jet speed at the victim's fou
 the rotor thrust of the spin run for `f`, the S1 change of the wake force `dforce_wake_N` and the S0
 force at the same item. It stands in for afterwash's twin until that is available.
 
+The maps hold several series of `a2_design.py` (`series` column; rows without it are the `map`). The
+fit goes along x and uses one row per height, so only series that hold their points along x and
+do not share a height are fitted together: `--series` picks them, by default the map and the
+profiles of the S0 and S1 runs. The repeat at a height an earlier series covers (`s0_repeat`) is
+fitted on its own, `--series s0_repeat`, and the sideways scan (`s0_scan_y`) is not fitted. A pick
+other than the default tags the output files with its series.
+
 Run with
     pixi run -e sim2real python crazyflow_experiments/downwash/analyze_a2.py \
+        [--series map s0_profile s1_map] \
         [--free results/downwash/a2/free_flight1_<time>/items.csv]
 """
 
@@ -57,6 +65,7 @@ SUMMARY_PATH = A2_RESULTS_DIR / "a2_summary.csv"
 MIN_POINTS = 5  # Points a row needs for the four-parameter fit
 AXIS_BAND = 0.05  # m, points this close to the jet's axis carry the b_v estimate
 CONDITIONS = {"S0": "fz_rel_N", "S1": "fz_rel_N", "F": "steady_rel_fz_N"}
+DEFAULT_SERIES = ("map", "s0_profile", "s1_map")  # Along x, at heights that do not overlap
 
 
 def gaussian(dx: NDArray, f0: float, sigma: float, mu: float, c: float) -> NDArray:
@@ -131,6 +140,18 @@ def read_rows(path: Path) -> list[dict]:
 
     with open(path, newline="") as f:
         return [{k: parse(v) for k, v in row.items()} for row in csv.DictReader(f)]
+
+
+def filter_series(rows: Sequence[Mapping], series: Sequence[str]) -> list[dict]:
+    """The rows of the given series; rows without a series column are the map's.
+
+    Raises:
+        ValueError: A kept point is offset along y, the fit is along x only.
+    """
+    kept = [dict(r) for r in rows if r.get("series", "map") in series]
+    if any(abs(float(r.get("dy", 0.0))) > 1e-9 for r in kept if r["kind"] == "point"):
+        raise ValueError(f"Series {list(series)} have points offset along y, the fit is along x")
+    return kept
 
 
 def summarise(maps: Mapping[str, Sequence[Mapping]]) -> list[dict]:
@@ -266,13 +287,26 @@ def main():
     parser.add_argument(
         "--free", type=Path, nargs="*", default=[], help="items.csv of free flights"
     )
+    parser.add_argument(
+        "--series",
+        nargs="+",
+        default=list(DEFAULT_SERIES),
+        help="Series to fit, e.g. s0_repeat; the default fits the map and the S0, S1 profiles",
+    )
     args = parser.parse_args()
+    tag = "" if tuple(args.series) == DEFAULT_SERIES else "_" + "_".join(args.series)
     maps: dict[str, list[dict]] = {}
     for name in ("S0", "S1"):
         path = A2_RESULTS_DIR / f"static_map_{name}.csv"
         if path.is_file():
-            maps[name] = read_rows(path)
-    free = [r for path in args.free for r in read_rows(path) if r["status"] == "ok"]
+            if rows := filter_series(read_rows(path), args.series):
+                maps[name] = rows
+    free = [
+        r
+        for path in args.free
+        for r in filter_series(read_rows(path), args.series)
+        if r["status"] == "ok"
+    ]
     if free:
         maps["F"] = free
     if not maps:
@@ -290,12 +324,13 @@ def main():
         logger.info(
             f"{condition}: sigma grows {slope(summary, condition)[0]:.3f} m per m of height"
         )
-    with open(SUMMARY_PATH, "w", newline="") as f:
+    summary_path = SUMMARY_PATH.with_stem(f"{SUMMARY_PATH.stem}{tag}")
+    with open(summary_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(dict.fromkeys(k for r in summary for k in r)))
         writer.writeheader()
         writer.writerows(summary)
-    logger.info(f"Saved {plot_rows(maps, summary, A2_PLOTS_DIR / 'rows_by_height.png')}")
-    logger.info(f"Saved {plot_width(summary, A2_PLOTS_DIR / 'jet_width.png')}")
+    logger.info(f"Saved {plot_rows(maps, summary, A2_PLOTS_DIR / f'rows_by_height{tag}.png')}")
+    logger.info(f"Saved {plot_width(summary, A2_PLOTS_DIR / f'jet_width{tag}.png')}")
 
 
 if __name__ == "__main__":

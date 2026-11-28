@@ -9,6 +9,9 @@ the stand, whose victim battery gives about 45 s of hover, flies one part from i
 [ref, 4 offsets] and [ref, 3 offsets, ref]. Between heights the source changes z at the reference
 point, never above the victim.
 
+After the map come the `[[a2.series]]` of the config (S0 profile, repeat, sideways scan in y, S1 map),
+numbered on from its parts and flown in the same scheme; `series` names each row's.
+
 Every item is a row: `leg` (also `item`) is its index in the whole design, `part` its part, and
 `x_src, y_src, z_src` are absolute, from the victim's hover point; the stand and the part subsets
 re-place and re-time the rows (`place`, `retime`). Times are seconds from the flight's timeline
@@ -62,6 +65,7 @@ COLUMNS = (
     "flight",
     "index_in_flight",
     "part",
+    "series",
     "height_sep",
     "kind",
     "dx",
@@ -79,7 +83,8 @@ COLUMNS = (
     "footprint_half",
 )
 INT_COLUMNS = ("item", "leg", "flight", "index_in_flight", "part")
-STR_COLUMNS = ("kind",)
+STR_COLUMNS = ("kind", "series")
+MAP_SERIES = "map"  # the series of the offsets and parts at the top level of `[a2]`
 CHECK_FREQ = 100.0  # Hz, rate the commanded paths are checked at
 REFERENCE_MARGIN = 0.1  # m the reference lies outside the widest footprint
 WAKE_MARGIN = 0.1  # s the discarded part of a dwell exceeds the wake's arrival by
@@ -121,6 +126,12 @@ def load_config(
         )
     if not 0 < a2["discard_s"] < a2["dwell_s"]:
         raise ValueError("discard_s has to lie inside dwell_s")
+    for series in a2.get("series", []):
+        sizes, axis = series["part_sizes"], "offsets_y" if "offsets_y" in series else "offsets_x"
+        if sum(sizes) != len(series[axis]):
+            raise ValueError(f"Series {series['name']}: part_sizes {sizes} do not cover {axis}")
+        if "offsets_y" in series and "offsets_x" in series:
+            raise ValueError(f"Series {series['name']} has both offsets_x and offsets_y")
     widest = max(cfg["a3"]["height_seps"])
     if arrival_time(widest, model) + WAKE_MARGIN > a2["discard_s"]:
         raise ValueError(
@@ -137,34 +148,75 @@ def design_heights(cfg: Mapping) -> list[float]:
     return sorted((float(dz) for dz in cfg["a3"]["height_seps"]), reverse=True)
 
 
+def series_list(cfg: Mapping) -> list[dict]:
+    """The map and the `[[a2.series]]` as dicts, in flight order.
+
+    The keys are `name`, `heights` (far to near), `part_sizes`, `offsets` along the axis `along`
+    ("x" or "y") and the fixed `dx` and `dy` of the other coordinate.
+    """
+    a2 = cfg["a2"]
+    out = [
+        {
+            "name": MAP_SERIES,
+            "heights": design_heights(cfg),
+            "part_sizes": list(a2["part_sizes"]),
+            "along": "x",
+            "offsets": [float(x) for x in a2["offsets_x"]],
+            "dx": 0.0,
+            "dy": 0.0,
+        }
+    ]
+    for series in a2.get("series", []):
+        along = "y" if "offsets_y" in series else "x"
+        out.append(
+            {
+                "name": series["name"],
+                "heights": sorted((float(h) for h in series["heights"]), reverse=True),
+                "part_sizes": list(series["part_sizes"]),
+                "along": along,
+                "offsets": [float(v) for v in series[f"offsets_{along}"]],
+                "dx": float(series.get("dx", 0.0)),
+                "dy": float(series.get("dy", 0.0)),
+            }
+        )
+    return out
+
+
 def build_design(cfg: Mapping) -> list[dict]:
-    """All items of the free flight, placed and timed from the victim's hover point."""
+    """All items of the flight, the map first and then the series, from the victim's hover point."""
     a2, model = cfg["a2"], cfg["drones"]["model"]
-    sizes = list(a2["part_sizes"])
-    offsets = [float(x) for x in a2["offsets_x"]]
     rows: list[dict] = []
-    for height_index, height in enumerate(design_heights(cfg)):
-        first = 0
-        for k, size in enumerate(sizes):
-            part = height_index * len(sizes) + k
-            points = [("reference", a2["reference_dx"])]
-            points += [("point", dx) for dx in offsets[first : first + size]]
-            if k == len(sizes) - 1:
-                points.append(("reference", a2["reference_dx"]))
-            first += size
-            for kind, dx in points:
-                rows.append(
-                    {
-                        "part": part,
-                        "height_sep": height,
-                        "kind": kind,
-                        "dx": float(dx),
-                        "dy": 0.0,
-                        "r_half": jet_half_width(height),
-                        "arrival_s": arrival_time(height, model),
-                        "footprint_half": footprint_half_width(height, model),
-                    }
-                )
+    part = 0
+    for series in series_list(cfg):
+        sizes, offsets = series["part_sizes"], series["offsets"]
+        for height in series["heights"]:
+            first = 0
+            for k, size in enumerate(sizes):
+                points = [("reference", a2["reference_dx"], 0.0)]
+                for v in offsets[first : first + size]:
+                    points.append(
+                        ("point", v, series["dy"])
+                        if series["along"] == "x"
+                        else ("point", series["dx"], v)
+                    )
+                if k == len(sizes) - 1:
+                    points.append(("reference", a2["reference_dx"], 0.0))
+                first += size
+                for kind, dx, dy in points:
+                    rows.append(
+                        {
+                            "part": part,
+                            "series": series["name"],
+                            "height_sep": height,
+                            "kind": kind,
+                            "dx": float(dx),
+                            "dy": float(dy),
+                            "r_half": jet_half_width(height),
+                            "arrival_s": arrival_time(height, model),
+                            "footprint_half": footprint_half_width(height, model),
+                        }
+                    )
+                part += 1
     return place(rows, victim_hover_point(cfg), cfg)
 
 
@@ -303,7 +355,8 @@ def read_design(path: Path = DESIGN_PATH) -> list[dict]:
     """Read a design csv back into typed rows."""
     with open(path, newline="") as f:
         return [
-            {
+            {"series": MAP_SERIES}  # Designs written before the series have none
+            | {
                 k: int(v) if k in INT_COLUMNS else v if k in STR_COLUMNS else float(v)
                 for k, v in row.items()
             }

@@ -67,7 +67,7 @@ logger = logging.getLogger("crazyflow_experiments.downwash.a2_convert")  # Not _
 logger.setLevel(logging.INFO)
 
 MIN_FINITE = 0.95  # Fraction of the used seconds' grid samples that need a value
-ITEM_KEYS = ("leg", "part", "kind", "height_sep", "dx")
+ITEM_KEYS = ("leg", "part", "series", "kind", "height_sep", "dx", "dy")
 VICTIM_WARN_DROP = 0.10  # m the victim sinks below its hover point that is flagged
 
 
@@ -175,7 +175,7 @@ def item_rows(data: FlightData, items: Sequence[Mapping], last_t: float) -> list
             elif not base_ok:
                 status = "no_baseline"
             row = {key: item[key] for key in ITEM_KEYS} | {"mode": "free", "status": status}
-            nominal = np.array([float(item["dx"]), 0.0, float(item["height_sep"])])
+            nominal = np.array([float(item["dx"]), float(item["dy"]), float(item["height_sep"])])
             if has_victim:
                 rel = m["p_src"] - m["p_vic"]
                 row |= {

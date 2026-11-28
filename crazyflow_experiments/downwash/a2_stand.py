@@ -26,12 +26,23 @@ if TYPE_CHECKING:
     from crazyflow_experiments.downwash.timeline import Timeline
 
 
+def stand_rows(rows: Sequence[Mapping], cfg: Mapping) -> list[dict]:
+    """The rows the stand flies: the map at `[stand] height_seps`, every `[[a2.series]]` item."""
+    kept = {int(r["leg"]) for r in a3_stand.stand_rows(rows, cfg)}
+    return [
+        dict(row)
+        for row in rows
+        if row.get("series", a2_design.MAP_SERIES) != a2_design.MAP_SERIES
+        or int(row["leg"]) in kept
+    ]
+
+
 def stand_flight(
     cfg: Mapping, rows: Sequence[Mapping], stand_pos: ArrayLike, parts: Sequence[int] | None
 ) -> tuple[dict, list[dict]]:
     """Config and items of a flight over the victim on the stand.
 
-    Only the items at the stand's `height_seps` are kept, of the given parts, placed `height_sep`
+    Only the map's items at the stand's `height_seps` and those of the series are kept, of the given parts, placed `height_sep`
     above the stand's position and retimed from the takeoff. See `a3_stand.stand_config`.
 
     Args:
@@ -46,7 +57,7 @@ def stand_flight(
     Raises:
         ValueError: No item is at a height the stand flies, or a part is not.
     """
-    kept = a3_stand.stand_rows(rows, cfg)
+    kept = stand_rows(rows, cfg)
     if not kept:
         raise ValueError(
             f"No item is at a height of [stand] height_seps {cfg['stand']['height_seps']}"

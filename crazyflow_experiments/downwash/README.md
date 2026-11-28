@@ -211,7 +211,7 @@ that is **3 legs per battery, 2 batteries per flight**; the dry
 run prints this budget for the legs it plans. Between legs the battery is read at rest in the tare:
 below `vbat_rest_min` 3.6 V the remaining legs fly without spinning (the source flies them as in a
 still run) and are listed in `meta.json` and at the end, with the `--legs` command that reflies
-them. Under load, A1's `vbat_load_min` 3.4 V stops the victim's motors only, never the source.
+them. Under load, `vbat_load_min` (3.2 V since 28 Nov, 3.4 V before) stops the victim's motors only, never the source.
 
 `motorPowerSet` overrides every stop of the firmware: the disarm, the watchdogs and a lost link
 leave the motors at their last command. The script stops them with a disarm, zero commands and
