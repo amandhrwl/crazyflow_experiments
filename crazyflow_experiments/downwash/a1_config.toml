@@ -3,7 +3,7 @@
 # Values marked [FILL] come from the lab, [VERIFY] are checked on the bench (a1_probe.py, B1-B6).
 
 # Who reads the load cell (spec section 1). "S": the victim, which logs it to its own card. The two
-# load cell tests of 21 Nov showed it with cf10: deck.bcLoadcell 1 and the SD deck working on the
+# load cell tests of 21 Nov showed it with cf1: deck.bcLoadcell 1 and the SD deck working on the
 # same drone, the card matching 94 % of the radio values. "R1": the victim, but the card does not
 # work with the load cell deck stacked; everything then comes over the radio at 100 Hz.
 # "R2" and "P" (another device or the PC reads it) do not apply to this stand.
@@ -11,11 +11,11 @@ case = "S"
 g = 9.81 # m/s^2, grams of force to N
 
 [victim]
-id = 10 # cf10, radio://0/80/2M/E7E7E7E70A, the drone of the load cell tests; not cf3 (spec ...03)
+id = 10 # cf1, whose radio address is still the one it had as cf10, radio://0/80/2M/E7E7E7E70A, the drone of the load cell tests; not cf3 (spec ...03)
 channel = 80
 radio = 0
 model = "cf21B_500" # crazyflow's model whose rpm2thrust is checked
-mass_kg = 0.05425 # cf10 weighed 21 Nov with SD deck, card, markers and battery (or the supply leads)
+mass_kg = 0.0511 # cf1 weighed 27 Nov with the new battery (was 0.05425 on 21 Nov with SD deck, card, markers and battery or supply leads)
 mount = "upright" # "upright" (the A2/A3 mount) or "upside_down"
 # Whether the victim is clamped to the load cell, which then takes the pull above its weight, up
 # to max_thrust_factor_hover and the cell's rating. Clamped on the stand (user, 21 Nov). Resting
@@ -26,14 +26,14 @@ clamped = true
 [load_cell]
 # The firmware computes loadcell.weight = a * loadcell.rawWeight + b, grams of upward force on the
 # victim, thrust positive. Neither survives a reboot, the scripts set them after every connect.
-# NEW LOAD CELL (22 Nov 22:25, after the old one railed at the ADC floor): calibration_run9.toml of
-# crazyflie-firmware/tools/system_id, 0-50 g, 80 SPS, calibscale.py --drone-on-top with cf10 on the
-# stand, residuals within 0.028 g; three runs agree on the gain within 0.03 %. It is 5.9 % more
-# sensitive than the old cell. The stand runs of flights 2 and 4 were taken with the old cell and
-# its run 7 calibration (21 Nov), a = 7.211317922653137e-5, b = 160.24304209142022, which their
-# meta.json keep.
-a = 7.639275143175492e-5
-b = 203.05089082251862
+# CALIBRATION RUN 12 (27 Nov, 18:16, 0-50 g, 6 points, residuals within 0.026 g), drone-on-top as clamped
+# for A1. The first run 12 (a = 7.6441e-5) and run 9 of 22 Nov agree with it within 0.08 %; runs 10 and 11
+# (17:14-17:17, a = 7.707e-5) are 0.8 % higher, cause unknown. Same cell since the NEW LOAD CELL (22 Nov
+# 22:25, after the old one railed at the ADC floor, 5.9 % more sensitive than the old one). The stand runs
+# of flights 2 and 4 were taken with the old cell and its run 7 calibration (21 Nov),
+# a = 7.211317922653137e-5, b = 160.24304209142022, which their meta.json keep.
+a = 7.645289e-5
+b = 204.823
 # Force on the victim, up positive, is force_sign * g / 1000 * (weight - tare). +1 with the
 # drone-on-top calibration for the upright mount: thrust already reads positive (the spec's -1
 # assumed a calibration with positive weights). The conversion asserts that the force rises with
@@ -50,13 +50,13 @@ capacity_g = 100
 [sweep]
 # Raw motorPowerSet commands, 0-65535. On the brushless they become the DShot throttle (ratio >> 5;
 # below 1504 the motor stops), not a fraction of thrust. Clipped at run time to [limits].
-cmd_levels = [12000, 16000, 20000, 24000, 28000, 32000, 36000, 40000, 44000, 48000, 52000, 56000]
-hold_s = 4.0 # s per level
-discard_s = 1.5 # s of spin-up and load cell settling dropped from the start of each window
+cmd_levels = [12000, 14000, 16000, 18000, 20000, 22000, 24000, 26000, 28000, 30000, 32000, 34000, 36000, 38000, 40000, 42000, 44000, 46000, 48000, 50000, 52000, 54000, 56000]
+hold_s = 3.0 # s per level
+discard_s = 1.2 # s of spin-up and load cell settling dropped from the start of each window
 tare_s = 5.0 # s with the motors off, at the start, middle and end of every block
 idle_s = 1.0 # s at the idle command before and after each sync pulse
 center_cmd = 0 # [FILL after B5] command near hover thrust, or the highest allowed one, repeated
-center_every = 6 # levels between two center levels
+center_every = 8 # levels between two center levels
 repeats = 2 # randomized orders of the level list per block
 single_motor_levels = 6 # levels per motor in the single-motor block
 # Command of the motor that ends the single-motor ramp, the one that gave 1.5 x hover thrust per
@@ -88,7 +88,7 @@ rpm2thrust = [0.0, -3.133427287299859e-7, 4.407354891648379e-10]
 [reference]
 # What the hover flights already said about crazyflow's curve, for a1_fit.py to compare with. The
 # thrust_scale multiplies crazyflow's rpm2thrust (hover: m g over the thrust the logged rpm give).
-# They come from other drones and props, so they show the direction, not cf10's value.
+# They come from other drones and props, so they show the direction, not cf1's value.
 thrust_scale_cf3_hover = 0.9046 # vic09-12, cf3 weighed 45.25 g, 0.4907 N from rpm (hover config)
 thrust_scale_downwash_config = 0.92 # downwash/config.toml, both drones
 # Mass that crazyflow's curve implied from the rpm of a hover, and the weighed mass of that drone.

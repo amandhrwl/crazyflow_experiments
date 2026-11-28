@@ -173,7 +173,7 @@ writes per leg `leg<NN>/states.npz`, `meta.json` and `quicklook.png`, and per fl
 ## A3 on the stand: the passes over the victim on the load cell
 
 The source flies A3's legs, the same design rows, speeds and height separations, over the victim
-cf10 clamped upright on the load cell stand, so each leg later lines up with its free-hover twin.
+cf1 clamped upright on the load cell stand, so each leg later lines up with its free-hover twin.
 The legs are centred on the victim's position in the motion capture and fly `height_sep` above it,
 up to 2.73 m with the stand at 1.53 m; `[stand] arena_max_z` raises the ceiling for these runs.
 Every flight is flown twice: **still**, motors off, the wake on the still airframe, and **spin**,
@@ -270,7 +270,7 @@ Each run gets `legs/leg<NN>.npz` (t from the measured crossing in s; `force_z`, 
 `thrust_rpm`, `dthrust_rpm`, `dforce_wake` in N, up positive; the four rpm; the source's position
 relative to the victim and its velocity), `summary.csv` (tare, baseline, peak change and its time
 after the crossing, rpm drift over the pass, battery) and `sync.json`. The rotor thrust comes from
-the rpm through cf10's A1 curve, so the sag at a fixed command is accounted for; `dforce_wake` is
+the rpm through cf1's A1 curve, so the sag at a fixed command is accounted for; `dforce_wake` is
 what the rotor speeds do not explain.
 
 The crossing is where the source's recorded x passes the stand's, as in the free-flight conversion,
@@ -345,7 +345,7 @@ rotor thrust from the rpm and `dforce_wake_N`, the part's `ref_drift_N`, and the
 `card_gap`, `not_spun`, `no_baseline`, `not_flown`). The first reference of a part is its baseline, in
 a spin run also the spin-alone one.
 
-**Free flight** (after cf10 is weighed, `[drones.victim] mass_kg`): the terminals of A3's free
+**Free flight** (after cf1 is weighed, `[drones.victim] mass_kg`): the terminals of A3's free
 flights, the rosbag of `/tf`, then the flight; far heights first, the 0.25 m part only after the
 others held the victim within 0.15 m:
 
@@ -369,7 +369,7 @@ hand tilt of the hovering drone shows each torque's sign.
 
 ## Block A1: crazyflow's rpm2thrust on the load cell
 
-The victim (cf10) sits upright on the load cell, which its own firmware reads (the sysid build),
+The victim (cf1) sits upright on the load cell, which its own firmware reads (the sysid build),
 and its motors run through fixed `motorPowerSet` commands while its card logs the load cell and
 the four rpm at 500 Hz. The fit of the steady windows says whether crazyflow's cf21B_500 curve
 holds, or which curve or `thrust_scale` replaces it. Spec: `CLAUDE_A1_rpm2thrust.md`; where it

@@ -33,7 +33,9 @@ def test_block_all_tares_at_start_middle_and_end_and_repeats_every_level():
     """Tare first, between the repeats and last; every level in the ramp and once per repeat."""
     steps = plan_all(CONFIG)
     kinds = [s.kind for s in steps]
-    assert kinds[0] == "tare" and kinds[-1] == "tare" and kinds.count("tare") == 4
+    repeats = CONFIG["sweep"]["repeats"]
+    # The first tare, one after each repeat, and the last after the closing sync pulse
+    assert kinds[0] == "tare" and kinds[-1] == "tare" and kinds.count("tare") == repeats + 2
     assert kinds.count("pulse") == 2
     levels = CONFIG["sweep"]["cmd_levels"]
     ramp = [s.commands[0] for s in steps if s.kind == "ramp"]

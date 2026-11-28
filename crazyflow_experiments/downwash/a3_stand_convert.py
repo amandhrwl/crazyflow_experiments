@@ -15,7 +15,7 @@ Per leg, every window comes from the victim schedule the run recorded (`a3_stand
   source crosses over the victim, forces in N, up positive.
 
 `force_z` is the load cell minus the leg's tare. `dforce_z` is its change from the baseline. In a
-spin run `thrust_rpm` is the rotor thrust from the measured rpm through cf10's A1 curve, so the
+spin run `thrust_rpm` is the rotor thrust from the measured rpm through cf1's A1 curve, so the
 battery's sag at the fixed command is accounted for, `dthrust_rpm` its change, and
 `dforce_wake = dforce_z - dthrust_rpm` the part of the change the rotor speeds do not explain. The
 rpm drift over each pass, against the baseline, is reported as well.

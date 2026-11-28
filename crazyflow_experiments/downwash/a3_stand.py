@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MODES = ("still", "spin")
-A1_CURVE_PATH = A1_RESULTS_DIR / "rpm2thrust.toml"  # cf10's thrust curve, written by a1_fit.py
+A1_CURVE_PATH = A1_RESULTS_DIR / "rpm2thrust.toml"  # cf1's thrust curve, written by a1_fit.py
 HOVER_CMD_TOL = 0.01  # Relative difference of the configured hover command from A1's that warns
 POLL = 0.05  # s between the checks of the victim thread
 VBAT_RECENT = 1.0  # s of status packets whose voltage counts as the present one under load
@@ -499,7 +499,7 @@ class VictimSchedule:
 
 
 def a1_curve(path: Path = A1_CURVE_PATH) -> tuple[NDArray, str]:
-    """cf10's rotor thrust curve from A1, the fit its decision chose, and which one that is."""
+    """cf1's rotor thrust curve from A1, the fit its decision chose, and which one that is."""
     result = tomllib.loads(path.read_text())
     fit = result["decision"]["fit"]
     return np.asarray(result[fit]["rpm2thrust"], dtype=float), fit

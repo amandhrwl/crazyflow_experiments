@@ -51,7 +51,7 @@ def rpm_logs(clock: fakes.Clock, rng: np.random.Generator, t0: float) -> tuple[d
 def test_r1_card_syncs_on_the_rpm(clock: fakes.Clock):
     """The card lands on its true PC time, late by the latency floor, at either card timer rate.
 
-    The first clock is cf10's of the load cell test of 21 Nov: tick and card timer 65.77 ms apart.
+    The first clock is cf1's of the load cell test of 21 Nov: tick and card timer 65.77 ms apart.
     """
     rng = np.random.default_rng(1)
     sd, radio = rpm_logs(clock, rng, fakes.PC_BOOT + 30.0)

@@ -121,7 +121,7 @@ docstring, so only the cases that deviate are listed here.
   0.5, 1.0, 1.5 and 2.0 m/s (`max_speed`): 16 cells, three repeats, six flights of eight legs, a far
   flight (1.0 and 0.75 m) and a near one (0.5 and 0.25 m) per repeat. A3 on the stand
   (`a3_deploy.py --flight <k> --stand [--spin] [--legs 8-10]`, the near flights 2, 4 and 6 only)
-  flies the legs at `[stand] height_seps`, 0.25 and 0.5 m, eight per flight, over the victim cf10
+  flies the legs at `[stand] height_seps`, 0.25 and 0.5 m, eight per flight, over the victim cf1
   clamped on the load cell, centred on its motion capture position and `height_sep` above it; only the source flies, the victim is a `radio.Victim` that streams and
   logs the load cell. With `--spin` it runs at `[stand] hover_cmd` per leg on its battery, along
   the schedule of `a3_stand.py` (tare, arming, settle, baseline, pass, motors off), which also
@@ -129,7 +129,7 @@ docstring, so only the cases that deviate are listed here.
   batteries. A dry run needs `--stand-pos` and `--source-pos` and prints the battery budget. Runs
   record to `results/downwash/a3/stand_flight<k>_<still|spin>_<time>/`, `usd.py collect --block
   a3_stand` fills their cards in, and `a3_stand_convert.py` cuts each leg around the source's measured
-  crossing (forces in N, the victim's thrust from its rpm through cf10's A1 curve) and reports the
+  crossing (forces in N, the victim's thrust from its rpm through cf1's A1 curve) and reports the
   load cell's delay behind that thrust, `--combine` merges the runs of a flight.
 - The load cell setup test of `downwash/` (`lc_test_*`) tests the load cell under the victim: the
   victim sits on it with its motors off and reads it with the `loadcell` deck driver of the
