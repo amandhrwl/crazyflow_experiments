@@ -445,7 +445,6 @@ def fly_stand(
     import rclpy
     from drone_estimators.ros_nodes.ros2_connector import ROSConnector
 
-    from crazyflow_experiments.downwash.dashboard import VictimDashboard
     from crazyflow_experiments.downwash.lc_test_deploy import still_position
     from crazyflow_experiments.downwash.pair import (
         connect_pair,
@@ -511,8 +510,6 @@ def fly_stand(
         a1_cfg["load_cell"],
     )
     plan = a3_stand.VictimSchedule(victim, schedule, stand, spin=mode == "spin")
-    # The live view of the victim on http://127.0.0.1:8050, read from the victim's own radio log
-    board = VictimDashboard(victim, stand["vbat_rest_min"], a1_cfg["load_cell"])
     source = takeoff = flight = None
     consoles, times = {"victim": victim.console}, {"victim": {}, "source": {}}
     airborne = landed = False
@@ -583,7 +580,6 @@ def fly_stand(
                         **{f"victim/{k}": v for k, v in victim.radio_log.arrays().items()},
                     )
                 finally:
-                    board.close()
                     if source is not None:
                         source.close()
                     victim.close()
