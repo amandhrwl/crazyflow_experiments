@@ -15,7 +15,7 @@ id = 10 # cf1, whose radio address is still the one it had as cf10, radio://0/80
 channel = 80
 radio = 0
 model = "cf21B_500" # crazyflow's model whose rpm2thrust is checked
-mass_kg = 0.0511 # cf1 weighed 27 Nov with the new battery (was 0.05425 on 21 Nov with SD deck, card, markers and battery or supply leads)
+mass_kg = 0.05425 # cf1 weighed 54.25 g with SD deck, card, markers and battery (user, 28 Nov; 51.1 g was entered for the runs of 27 Nov)
 mount = "upright" # "upright" (the A2/A3 mount) or "upside_down"
 # Whether the victim is clamped to the load cell, which then takes the pull above its weight, up
 # to max_thrust_factor_hover and the cell's rating. Clamped on the stand (user, 21 Nov). Resting

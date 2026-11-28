@@ -11,6 +11,7 @@ pos_update_freq = 20                # Hz, motion capture pose sent to the onboar
 [drones.victim]
 radio = 0
 id = 10                              # the drone with the victim card; source before 19 Nov
+tf_name = "cf1"                     # its rigid body in the motion capture; the radio address is still the one of cf10 (id 10)
 channel = 80
 hover_xy = [0.0, 0.0]               # the victim hovers straight above this point
 hover_z = 0.8                       # m; 0.8 so that the 1.0 m passes keep the source at 1.8 m, where the motion capture still sees it (user, 22 Nov; was 1.0)
@@ -25,7 +26,7 @@ thrust_scale = 0.9503               # cf1, A1 on the load cell (21 Nov, 0.950 +-
 radio = 0
 id = 3                            # the drone with the source card; victim before 19 Nov
 channel = 80                        # same channel: both share radio 0, the radio keys are not read
-mass_kg = 0.04525                   # weighed with deck, card, markers and the new battery
+mass_kg = 0.04589                   # cf3 weighed 45.89 g (user, 28 Nov; 45.25 g before) with deck, card, markers and battery
 thrust_scale = 0.92                 # hover of vic09-12 (cf3) at 45.25 g, 0.4907 N from rpm over m g
 
 [control]
