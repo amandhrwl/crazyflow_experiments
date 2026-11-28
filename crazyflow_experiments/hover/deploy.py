@@ -109,12 +109,14 @@ class FirmwareMonitor:
             )
 
 
-def main(calibrate: bool = True, save: bool = True) -> None:
+def main(calibrate: bool = True, save: bool = True, takeoff_duration: float = 4.0) -> None:
     """Take off, hover at the configured origin, return home and save the recording.
 
     Args:
         calibrate: Calibrate the drone orientation once it hovers after takeoff.
         save: Write the recording folder to `results/hover/`.
+        takeoff_duration: Seconds of the takeoff ramp to the hover pose, the ramp speed is the
+            height over this.
     """
     config = toml.load(Path(__file__).parent / "config.toml")
     model = config["drone"]["model"]
@@ -150,7 +152,7 @@ def main(calibrate: bool = True, save: bool = True) -> None:
 
     try:
         card["start"] = usd.start_logging(drone.cf, drone.name, usd.recording_time(folder))
-        takeoff(drone, pos_start, yaw_start, calibrate=calibrate)
+        takeoff(drone, pos_start, yaw_start, calibrate=calibrate, duration=takeoff_duration)
         logger.info(f"Hovering at {pos_start} for {trajectory.duration} s")
         data = track(drone, controller, ctrl_freq, trajectory_config.start_time)
         logger.info("Hover finished, returning home")

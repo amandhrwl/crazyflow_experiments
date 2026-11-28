@@ -1,5 +1,5 @@
 [drone]
-id = 4
+id = 3
 channel = 80
 model = "cf21B_500" # cf2x_L250, cf2x_P250, cf2x_T350, cf21B_500
 pos_landing = [0.2, 0.2, 0.0] # landing position of the drone in global frame
@@ -7,7 +7,7 @@ pos_update_freq = 20 # Hz, frequency for onboard estimator updates
 # This drone's own values, so the shared model tables in sysid/config_drones.toml and crazyflow stay
 # untouched. The controller flies with `mass` instead of the model's mass; `thrust_scale` multiplies
 # crazyflow's rpm2thrust of the model when the rotor thrust is computed from the logged rpm
-mass = 0.04525 # kg, weighed with SD deck, card, markers and the new battery
+mass = 0.04589 # kg, cf3 weighed 28 Nov with SD deck, card, markers and battery
 thrust_scale = 0.9046 # rpm2thrust calibration from the steady hover of vic09-12 at 45.25 g
 
 [controller]
@@ -16,7 +16,7 @@ ctrl_freq = 100 # Hz
 
 [experiment]
 # A zero-size ellipse stays at its origin, so the drone hovers there for n_runs * time seconds
-origin = [0.0, 0.0, 1.25] # hover position in global frame
+origin = [0.0, 0.0, 2.5] # hover position in global frame
 trajectory = "ellipse"
 plane = "xy"
 scaling = [0.0, 0.0, 0.0] # keep at zero for a hover
